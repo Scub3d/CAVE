@@ -1,0 +1,189 @@
+#version 450
+#extension GL_ARB_gpu_shader_int64 : enable
+
+const uint GRID_X_SIZE = 49;
+const uint GRID_Y_SIZE = 49;
+const uint GRID_Z_SIZE = 49;
+
+const uint TOTAL_NUMBER_OF_CELLS = 117649;
+
+// Bit masks
+const uint FACE_NEIGHBORS_MASK = 1;
+const uint EDGE_NEIGHBORS_MASK = 2;
+const uint CORNER_NEIGHBORS_MASK = 4;
+const uint WRAP_NEIGHBORS_MASK = 8;
+
+// Bit Shifts
+const uint MAX_CELL_STATE_SHIFT = 60;
+const uint NEIGHBORHOOD_RULES_SHIFT = 60;
+
+// Permutation Indices
+//const uint SURVIVAL_AND_NEIGHBORHOOD_PERMUTATION_INDEX = 0;
+//const uint BIRTH_AND_MAX_CELL_STATE_PERMUTATION_INDEX = 1;
+//const uint MAX_PERMUTATION_INDEX = 2;
+
+struct GridPermutations {
+	uint64_t birthAndMaxCellStatePermutation;
+	uint64_t survivalAndNeighborhoodPermutation;
+};
+
+struct GridSnapshot {
+	uint numberOfDeadCells;
+	uint numberOfDyingCells;
+	uint numberOfCellsBorn;
+	uint numberOfSurvivingCells;
+};
+
+// TODO: Revist this once I have more complex shapes working. I can consildate Start Indices and Sizes into one number and put that into cellsData but I need to know what the max values are to determine compression limits
+// Face Neighbor Configuration Data
+layout(std430, binding = 0) readonly buffer ShapeFaceNeighborConfigurationStartIndicesSSBO {
+	uint faceNeighborConfigurationStartIndices[];
+};
+
+layout(std430, binding = 1) readonly buffer ShapeFaceNeighborConfigurationSizesSSBO {
+	uint faceNeighborConfigurationSizes[];
+};
+
+layout(std430, binding = 2) readonly buffer ShapeFaceNeighborConfigurationsDataSSBO {
+	ivec4 faceNeighborConfigurations[];
+};
+
+// Edge Neighbor Configuration Data
+layout(std430, binding = 3) readonly buffer ShapeEdgeNeighborConfigurationStartIndicesSSBO {
+	uint edgeNeighborConfigurationStartIndices[];
+};
+
+layout(std430, binding = 4) readonly buffer ShapeEdgeNeighborConfigurationSizesSSBO {
+	uint edgeNeighborConfigurationSizes[];
+};
+
+layout(std430, binding = 5) readonly buffer ShapeEdgeNeighborConfigurationsDataSSBO {
+	ivec4 edgeNeighborConfigurations[];
+};
+
+// Corner Neighbor Configuration Data
+layout(std430, binding = 6) readonly buffer ShapeCornerNeighborConfigurationStartIndicesSSBO {
+	uint cornerNeighborConfigurationStartIndices[];
+};
+
+layout(std430, binding = 7) readonly buffer ShapeCornerNeighborConfigurationSizesSSBO {
+	uint cornerNeighborConfigurationSizes[];
+};
+
+layout(std430, binding = 8) readonly buffer ShapeCornerNeighborConfigurationsDataSSBO {
+	ivec4 cornerNeighborConfigurations[];
+};
+
+layout(std430, binding = 9) readonly buffer GridPermutationsSSBO {
+	GridPermutations gridPermutations;
+};
+
+layout(std430, binding = 10) buffer GridSnapshotSSBO {
+	GridSnapshot gridSnapshot;
+};
+
+// Cell Data
+layout(std430, binding = 11) readonly buffer CellsDataSSBOIn {
+   uvec4 cellsIn[];
+};
+
+layout(std430, binding = 12) buffer CellsDataSSBOOut {
+   uvec4 cellsOut[];
+};
+
+bool IsInBounds(ivec3 coordinates) {
+	if (coordinates.x >= GRID_X_SIZE) return false;
+	if (coordinates.y >= GRID_Y_SIZE) return false;
+	if (coordinates.z >= GRID_Z_SIZE) return false;
+	if (coordinates.x < 0) return false;
+	if (coordinates.y < 0) return false;
+	if (coordinates.z < 0) return false;
+	
+	return true;
+}
+
+ivec3 Wrap(ivec3 coordinates) {
+	return (coordinates + ivec3(GRID_X_SIZE, GRID_Y_SIZE, GRID_Z_SIZE)) % ivec3(GRID_X_SIZE, GRID_Y_SIZE, GRID_Z_SIZE);
+}
+
+bool IsNeighborThatCounts(ivec3 potentialNeighborCoordinates, uint maxCellState, uint neighborhoodRules) {
+	if((neighborhoodRules & WRAP_NEIGHBORS_MASK) == WRAP_NEIGHBORS_MASK) { // wrap
+		potentialNeighborCoordinates = Wrap(potentialNeighborCoordinates);
+	} else if(!IsInBounds(potentialNeighborCoordinates)) return false;
+
+	uint neighborIndex = potentialNeighborCoordinates.x + potentialNeighborCoordinates.y * GRID_X_SIZE + potentialNeighborCoordinates.z * GRID_X_SIZE * GRID_Y_SIZE;
+			
+	if(cellsIn[neighborIndex].w == maxCellState) {
+		return true;
+	} else {
+		return false;
+	}
+}
+
+int CountNumberOfAliveNeighbors(ivec3 coordinates, uvec4 cell, uint maxCellState, uint neighborhoodRules) {
+	int count = 0;
+
+	if((neighborhoodRules & FACE_NEIGHBORS_MASK) == FACE_NEIGHBORS_MASK) { // Faces
+		for(uint faceNeighborConfigurationIndex = faceNeighborConfigurationStartIndices[cell.x]; faceNeighborConfigurationIndex < faceNeighborConfigurationSizes[cell.x] + faceNeighborConfigurationStartIndices[cell.x]; faceNeighborConfigurationIndex++) {
+			if(IsNeighborThatCounts(coordinates + faceNeighborConfigurations[faceNeighborConfigurationIndex].xyz, maxCellState, neighborhoodRules)) {
+				count++;
+			}
+		}
+	}
+	
+	if((neighborhoodRules & EDGE_NEIGHBORS_MASK) == EDGE_NEIGHBORS_MASK) { // Edges
+		for(uint edgeNeighborConfigurationIndex = edgeNeighborConfigurationStartIndices[cell.y]; edgeNeighborConfigurationIndex < edgeNeighborConfigurationSizes[cell.y] + edgeNeighborConfigurationStartIndices[cell.y]; edgeNeighborConfigurationIndex++) {
+			if(IsNeighborThatCounts(coordinates + edgeNeighborConfigurations[edgeNeighborConfigurationIndex].xyz, maxCellState, neighborhoodRules)) {
+				count++;
+			}
+		}
+	}
+
+	if((neighborhoodRules & CORNER_NEIGHBORS_MASK) == CORNER_NEIGHBORS_MASK) { // Corners
+		for(uint cornerNeighborConfigurationIndex = cornerNeighborConfigurationStartIndices[cell.z]; cornerNeighborConfigurationIndex < cornerNeighborConfigurationSizes[cell.z] + cornerNeighborConfigurationStartIndices[cell.z]; cornerNeighborConfigurationIndex++) {
+			if(IsNeighborThatCounts(coordinates + cornerNeighborConfigurations[cornerNeighborConfigurationIndex].xyz, maxCellState, neighborhoodRules)) {
+				count++;
+			}
+		}
+	}
+
+	return count;
+}
+
+layout (local_size_x = 256) in;
+
+void main() {
+	uint cellIndex = gl_GlobalInvocationID.x;// + gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x;
+	if(cellIndex >= GRID_X_SIZE * GRID_Y_SIZE * GRID_Z_SIZE) return;
+
+	uint x = cellIndex % GRID_X_SIZE;
+	uint y = (cellIndex / GRID_X_SIZE) % GRID_Y_SIZE;
+	uint z = (cellIndex / (GRID_X_SIZE * GRID_Y_SIZE)) % GRID_Z_SIZE;
+
+	uint maxCellState = uint(gridPermutations.birthAndMaxCellStatePermutation >> MAX_CELL_STATE_SHIFT);
+
+	uvec4 cell = cellsIn[cellIndex];
+
+	int numberOfAliveNeighbors = CountNumberOfAliveNeighbors(ivec3(x, y, z), cell, maxCellState, uint(gridPermutations.survivalAndNeighborhoodPermutation >> NEIGHBORHOOD_RULES_SHIFT));
+
+	if(cell.w == maxCellState) { // Survival
+		if(numberOfAliveNeighbors > 0 && ((gridPermutations.survivalAndNeighborhoodPermutation >> (numberOfAliveNeighbors - 1)) & 1) == 1) {
+			cellsOut[cellIndex].w = maxCellState;
+			atomicAdd(gridSnapshot.numberOfSurvivingCells, 1);
+		} else {
+			cellsOut[cellIndex].w = cell.w - 1;
+			atomicAdd(gridSnapshot.numberOfDyingCells, 1);
+		}
+	} else if(cell.w == 0) { // Birth 
+		if(numberOfAliveNeighbors > 0 && ((gridPermutations.birthAndMaxCellStatePermutation >> (numberOfAliveNeighbors - 1)) & 1) == 1) {
+			cellsOut[cellIndex].w = maxCellState;
+			atomicAdd(gridSnapshot.numberOfCellsBorn, 1);
+		} else {
+			cellsOut[cellIndex].w = 0;
+			atomicAdd(gridSnapshot.numberOfDeadCells, 1);
+		}
+	} else {
+		cellsOut[cellIndex].w = cell.w - 1;
+		atomicAdd(gridSnapshot.numberOfDyingCells, 1);
+	}
+}

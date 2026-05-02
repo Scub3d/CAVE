@@ -1,0 +1,36 @@
+# Build outputs
+/build/
+/out/
+*.obj
+*.lib
+*.dll
+*.exe
+*.pdb
+*.ilk
+
+# CMake artifacts (in case any leak outside /build/)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# Vendored deps managed by CMake FetchContent
+/lib/
+
+# Runtime output
+/data/
+
+# Generated visual artifacts
+/videos/
+/images/
+
+# IDE / editor (keep .vscode/ tracked for shared config)
+*.user
+*.code-workspace
+
+# Runtime config artifacts
+imgui.ini
+
+# OS
+.DS_Store
+Thumbs.db

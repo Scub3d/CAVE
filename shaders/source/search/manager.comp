@@ -1,0 +1,160 @@
+#version 450
+#extension GL_ARB_gpu_shader_int64 : enable
+
+const uint GRID_X_SIZE = 49;
+const uint GRID_Y_SIZE = 49;
+const uint GRID_Z_SIZE = 49;
+const uint TOTAL_NUMBER_OF_CELLS = 117649;
+
+const uint MAX_NUMBER_OF_TICKS_TO_SURVIVE = 100;
+
+// Bit masks
+const uint FACE_NEIGHBORS_MASK = 1;
+const uint EDGE_NEIGHBORS_MASK = 2;
+const uint CORNER_NEIGHBORS_MASK = 4;
+const uint WRAP_NEIGHBORS_MASK = 8;
+const uint64_t PERMUTATION_MASK = 0xFFFFFFFFFFFFFFFUL;
+const uint64_t PERMUTATION_INVERTED_MASK = 0XF000000000000000UL;
+const uint64_t NULL_MASK = 0x0UL;
+
+// Bit Shifts
+const uint MAX_CELL_STATE_SHIFT = 60;
+const uint NEIGHBORHOOD_RULES_SHIFT = 60;
+
+// Permutation Indices
+//const uint SURVIVAL_AND_NEIGHBORHOOD_PERMUTATION_INDEX = 0;
+//const uint BIRTH_AND_MAX_CELL_STATE_PERMUTATION_INDEX = 1;
+//const uint MAX_PERMUTATION_INDEX = 2;
+
+struct GridSnapshot {
+	uint numberOfDeadCells;
+	uint numberOfDyingCells;
+	uint numberOfCellsBorn;
+	uint numberOfSurvivingCells;
+};
+
+struct GridInfo {
+	uint totalNumberOfCellsThatDied;
+	uint totalNumberOfCellsThatWereBorn;
+	uint numberOfSimulationTicksSurvived;
+	uint status;
+};
+
+struct GridPermutations {
+	uint64_t birthAndMaxCellStateRules;
+	uint64_t survivalAndNeighborhoodRules;
+};
+
+layout(std430, binding = 0) buffer InitialCellsDataSSBO {
+	uvec4 initialCells[];
+};
+
+layout(std430, binding = 1) buffer CellsDataSSBOOut {
+	uvec4 cells[];
+};
+
+layout(std430, binding = 2) buffer GridSnapshotSSBO {
+	GridSnapshot gridSnapshot;
+};
+
+layout(std430, binding = 3) buffer GridMaxPermutationSSBO {
+	uint64_t maxPermutation;
+};
+
+layout(std430, binding = 4) buffer GridPermutationsSSBO {
+	GridPermutations gridPermutations;
+};
+
+layout(std430, binding = 5) buffer GridPermutationsCopySSBO {
+	GridPermutations gridPermutationsCopy;
+};
+
+layout(std430, binding = 6) buffer GridInfoSSBO {
+	GridInfo gridInfo;
+};
+
+layout(std430, binding = 7) buffer GridInfoCopySSBO {
+	GridInfo gridInfoCopy;
+};
+
+layout (local_size_x = 1) in;
+
+void NextPermutation() {
+	if(gridPermutations.survivalAndNeighborhoodRules == NULL_MASK || gridPermutations.birthAndMaxCellStateRules == NULL_MASK) {
+		return;
+	}
+
+	if ((gridPermutations.birthAndMaxCellStateRules & PERMUTATION_MASK) < maxPermutation) {
+		gridPermutations.birthAndMaxCellStateRules++;
+	} else if ((gridPermutations.survivalAndNeighborhoodRules & PERMUTATION_MASK) < maxPermutation) {
+		gridPermutations.survivalAndNeighborhoodRules++;
+		gridPermutations.birthAndMaxCellStateRules = (gridPermutations.birthAndMaxCellStateRules & PERMUTATION_INVERTED_MASK) + 1;
+	} else {
+		gridPermutations.survivalAndNeighborhoodRules = NULL_MASK;
+		gridPermutations.birthAndMaxCellStateRules = NULL_MASK;
+	}	
+
+	// Reset Grid Stats
+	gridInfo.totalNumberOfCellsThatDied = 0;
+	gridInfo.totalNumberOfCellsThatWereBorn = 0;
+	gridInfo.numberOfSimulationTicksSurvived = 0;
+	gridInfo.status = 0;
+}
+
+void main() {
+	if(gridPermutations.survivalAndNeighborhoodRules == NULL_MASK || gridPermutations.birthAndMaxCellStateRules == NULL_MASK) {
+		gridInfoCopy = gridInfo;
+		gridPermutations = gridPermutations;
+	}
+
+	// Update grid stats
+	gridInfo.numberOfSimulationTicksSurvived++;
+	gridInfo.totalNumberOfCellsThatDied += gridSnapshot.numberOfDeadCells;
+	gridInfo.totalNumberOfCellsThatWereBorn += gridSnapshot.numberOfCellsBorn;
+
+	if(gridSnapshot.numberOfDeadCells == TOTAL_NUMBER_OF_CELLS) {
+		gridInfo.status = 1; // died
+	} else if(gridInfo.numberOfSimulationTicksSurvived >= MAX_NUMBER_OF_TICKS_TO_SURVIVE) {
+		gridInfo.status = 2; // survived long enough
+	} else {
+		gridInfo.status = 0; // still going
+	}
+
+	//  Copy data so CPU can read even if reset/advancement
+	gridInfoCopy = gridInfo;
+	gridPermutationsCopy = gridPermutations;
+
+	if(gridInfo.status > 0) { // Advance to next 
+		NextPermutation();
+	}
+}
+
+
+
+
+
+	// 00000 000000 <- for placement, 00000000 <- for spawn area size
+	// center, TL, TR, BL, BR, maybe centers of faces but thats 6 more bits
+
+	// 00000 000000 00000000 <- 5 + 6 + 8
+
+
+	// 00000 <- 5 bits for shape id
+	// 00000000 00000000 00000000 <- 8 bits for grid x size, y size, & z size
+
+
+
+
+	// xxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx <- neighbor rules - survival rules
+	// xxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx <- max cell state - survival rules
+
+
+
+
+	// 0000 <- Neighborhood Permutation. 14 possible (0000 and 1000) don't do anything
+	// WCEF <- Wrap, Corners, Edges, Faces
+	// 0001 -> 0111 + 1001 -> 1111
+
+	// 0000 <- Max Cell State. 16 possible (0000 = 1, 0001 = 2, ... 1111 = 16)
+
+	// 16 * 14 = 224
