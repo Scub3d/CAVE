@@ -290,7 +290,7 @@ namespace Cave
 			const glm::uvec4* gridDimensions = _simulationRenderer.GetGridDimensions();
 			uint32_t dispatchX = (_simulationRenderer.GetCellStateImageWidth() + 7) / 8;
 			uint32_t dispatchY = (gridDimensions->y + 7) / 8;
-			uint32_t dispatchZ = (_simulationRenderer.GetOwnedZSize() + 7) / 8;
+			uint32_t dispatchZ = (_simulationRenderer.GetOwnedZSize() + 3) / 4;
 
 			if (queryManager) queryManager->WriteTimestamp(computeCommandBuffer, queryPool, vk::PipelineStageFlagBits::eTopOfPipe, "compute_start");
 			computeCommandBuffer.dispatch(dispatchX, dispatchY, dispatchZ);

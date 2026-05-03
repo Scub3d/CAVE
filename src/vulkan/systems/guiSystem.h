@@ -129,12 +129,12 @@ namespace Cave
 		// Upfront chunk partitioning. N > 1 emits N copies of each chunk, each taking
 		// a non-overlapping slice of the survival rule range — lets a single-grid
 		// filled-spawn search saturate multiple GPUs without waiting for work-stealing.
-		int searchChunksPerConfig = 1;
+		int searchChunksPerConfig = 64;
 
 		// Simulation kernel workgroup size (threads per local block). Hardcoded into
 		// the generated shader's `layout(local_size_x = N)` and the host-side dispatch
 		// math. Valid: 32, 64, 128, 256, 512.
-		int searchWorkgroupSize = 64;
+		int searchWorkgroupSize = 256;
 
 		// Video encoding parameters
 		int videoSourceMode = 0; // 0 = import JSON, 1 = manual entry (raw uint64)

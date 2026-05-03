@@ -177,7 +177,7 @@ void scatterWriteSkipGrid(int3 cellCoordinates)
 // Thread Z is offset by Z_OWNED_START to map into the local buffer
 // (which has layout: [ghost_lo, owned, ghost_hi]).
 [shader("compute")]
-[numthreads(8, 8, 8)]
+[numthreads(8, 8, 4)]
 void computeMain(uint3 globalID : SV_DispatchThreadID)
 {
     int3 texelCoordinates = int3(globalID);

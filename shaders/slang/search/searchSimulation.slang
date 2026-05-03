@@ -1,17 +1,36 @@
 // Search-mode simulation compute shader (Cube shape only).
 //
-// Each thread processes 8 cells packed as 4-bit nibbles in one uint32. Reads
-// the rule encoded in `simulationParameters`, evaluates birth/survival/death
-// for each cell against the rule, writes packed output.
+// Production shader: 3D dispatch (8, 8, 4) = 256 threads, each thread owning
+// ONE uint = 8 packed cells along X. Workgroup covers 8×8×4 uints = 64×8×4
+// cells = 2048 cells. Stats reduction uses subgroup wave intrinsics.
 //
-// Per-tick stats are accumulated via workgroup-shared-memory atomic reduction
-// (4 conditional atomicAdds per workgroup → global gridSnapshot, vs the naive
-// per-thread global atomic which is 256× more global atomic traffic).
+// Optimizations vs the prior 1D-dispatch shader (split-tested 2026-05-02):
+//
+// 1. 3D DISPATCH. Each workgroup is now a spatially-coherent 3D block of
+//    uints (rather than a long 1D run), giving better L1/L2 hit rates on
+//    Y/Z neighbor reads. Speedup: -25 to -37% across p=4..256 vs 1D dispatch
+//    on cube 49^3 FE K=2 GPU0-only.
+//
+// 2. WAVE-INTRINSIC stats reduction. Per-thread bornCount/diedCount/etc are
+//    summed first via WaveActiveSum within each 32-lane warp; only the
+//    first lane of each warp commits one InterlockedAdd-to-groupshared per
+//    counter. With 8 warps × 4 counters = 32 atomicAdds-to-groupshared per
+//    workgroup (vs 256 × 4 = 1024 in the per-thread variant). Speedup over
+//    pure 3D dispatch: -10 to -30% additional across p=4..128.
+//
+// Variants tried and rejected (see project_optimization_split_test memory note):
+//   - Cooperative groupshared TILE LOADING: helped at p=8-32 (-12% vs 3D)
+//     but regressed at p=64+ (+11 to +57%). When combined with wave intrinsics
+//     it became a net loss everywhere (+5-9% vs wave-only). Removed.
+//
+// LIMITATION: this variant does NOT support wraps. The dispatch math assumes
+// uint-aligned access; wrap with non-aligned grids (gridX % 8 != 0) would
+// require careful nibble re-mapping. Production search workloads use
+// wraps=off — recover the prior 1D-dispatch shader from git history if needed.
 //
 // Required defines (injected via SlangCompiler):
-//   GRID_X_SIZE, GRID_Y_SIZE, GRID_Z_SIZE   — grid dimensions baked in
+//   GRID_X_SIZE, GRID_Y_SIZE, GRID_Z_SIZE   — grid dimensions in cells
 //   MAX_RULE_BITS                           — 0 (raw bitmask) or K (1-based index into validBitmasks)
-//   WORKGROUP_SIZE                          — threads per workgroup (32, 64, 128, 256, 512)
 //
 // IMPORTANT — Slang 64-bit literal gotcha: `0xF000000000000000UL` truncates to
 // uint32 (=0). Always build uint64 constants from bit shifts or explicit casts.
@@ -29,6 +48,9 @@ static const uint FACE_NEIGHBORS_MASK   = 1u;
 static const uint EDGE_NEIGHBORS_MASK   = 2u;
 static const uint CORNER_NEIGHBORS_MASK = 4u;
 static const uint WRAP_NEIGHBORS_MASK   = 8u;
+
+static const uint UINTS_PER_ROW = (GRID_X_SIZE + CELLS_PER_UINT - 1u) / CELLS_PER_UINT;
+static const uint UINTS_PER_SLICE = UINTS_PER_ROW * GRID_Y_SIZE;
 
 struct SimulationParameters
 {
@@ -53,66 +75,52 @@ struct GridSnapshot
 
 groupshared uint workgroupCounts[4]; // [0]=died, [1]=dying, [2]=born, [3]=surviving
 
-bool isAliveNeighbor(int3 neighborCoords, uint maxCellState, uint3 dims, bool wraps)
+bool isAliveNeighbor(int3 c, uint maxCellState, uint3 dims)
 {
-    if (wraps)
-    {
-        neighborCoords.x = (neighborCoords.x + int(dims.x)) % int(dims.x);
-        neighborCoords.y = (neighborCoords.y + int(dims.y)) % int(dims.y);
-        neighborCoords.z = (neighborCoords.z + int(dims.z)) % int(dims.z);
-    }
-    else
-    {
-        if (neighborCoords.x < 0 || neighborCoords.x >= int(dims.x)) return false;
-        if (neighborCoords.y < 0 || neighborCoords.y >= int(dims.y)) return false;
-        if (neighborCoords.z < 0 || neighborCoords.z >= int(dims.z)) return false;
-    }
-
-    if (!CubeFaceEdgeCorner::IsCellViable(uint3(neighborCoords), dims)) return false;
-
-    uint linearIndex = uint(neighborCoords.x)
-                     + uint(neighborCoords.y) * dims.x
-                     + uint(neighborCoords.z) * dims.x * dims.y;
+    if (c.x < 0 || c.x >= int(dims.x) || c.y < 0 || c.y >= int(dims.y) || c.z < 0 || c.z >= int(dims.z))
+        return false;
+    if (!CubeFaceEdgeCorner::IsCellViable(uint3(c), dims)) return false;
+    uint linearIndex = uint(c.x) + uint(c.y) * dims.x + uint(c.z) * dims.x * dims.y;
     uint uintIndex = linearIndex / CELLS_PER_UINT;
     uint nibble    = linearIndex % CELLS_PER_UINT;
     uint state     = (cellsIn[uintIndex] >> (nibble * 4u)) & CELL_STATE_MASK;
     return state == maxCellState;
 }
 
-int countAliveNeighbors(int3 cellCoords, uint maxCellState, uint3 dims, bool wraps, uint neighborhoodFlags)
+int countAliveNeighbors(int3 cellCoords, uint maxCellState, uint3 dims, uint neighborhoodFlags)
 {
     int count = 0;
-
     if ((neighborhoodFlags & FACE_NEIGHBORS_MASK) != 0u)
     {
         for (int i = 0; i < 6; i++)
-            if (isAliveNeighbor(cellCoords + kFaceDeltas[i], maxCellState, dims, wraps)) count++;
+            if (isAliveNeighbor(cellCoords + kFaceDeltas[i], maxCellState, dims)) count++;
     }
     if ((neighborhoodFlags & EDGE_NEIGHBORS_MASK) != 0u)
     {
         for (int i = 0; i < 12; i++)
-            if (isAliveNeighbor(cellCoords + kEdgeDeltas[i], maxCellState, dims, wraps)) count++;
+            if (isAliveNeighbor(cellCoords + kEdgeDeltas[i], maxCellState, dims)) count++;
     }
     if ((neighborhoodFlags & CORNER_NEIGHBORS_MASK) != 0u)
     {
         for (int i = 0; i < 8; i++)
-            if (isAliveNeighbor(cellCoords + kCornerDeltas[i], maxCellState, dims, wraps)) count++;
+            if (isAliveNeighbor(cellCoords + kCornerDeltas[i], maxCellState, dims)) count++;
     }
     return count;
 }
 
 [shader("compute")]
-[numthreads(WORKGROUP_SIZE, 1, 1)]
+[numthreads(8, 8, 4)]
 void computeMain(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupThreadID)
 {
-    uint3 dims      = uint3(GRID_X_SIZE, GRID_Y_SIZE, GRID_Z_SIZE);
-    uint totalCells = dims.x * dims.y * dims.z;
-    uint totalUints = (totalCells + CELLS_PER_UINT - 1u) / CELLS_PER_UINT;
-    uint uintIndex  = globalId.x;
-    bool cellsActive = (uintIndex < totalUints);
+    uint3 dims = uint3(GRID_X_SIZE, GRID_Y_SIZE, GRID_Z_SIZE);
 
-    // ALL threads must reach the barriers, including those past totalUints.
-    if (localId.x < 4u) workgroupCounts[localId.x] = 0u;
+    int uintX = int(globalId.x);
+    int uintY = int(globalId.y);
+    int uintZ = int(globalId.z);
+    bool uintActive = (uintX < int(UINTS_PER_ROW)) && (uintY < int(GRID_Y_SIZE)) && (uintZ < int(GRID_Z_SIZE));
+
+    uint linearLocal = localId.x + localId.y * 8u + localId.z * 64u;
+    if (linearLocal < 4u) workgroupCounts[linearLocal] = 0u;
     GroupMemoryBarrierWithGroupSync();
 
     uint bornCount     = 0u;
@@ -120,16 +128,13 @@ void computeMain(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupT
     uint survivedCount = 0u;
     uint dyingCount    = 0u;
 
-    if (cellsActive)
+    if (uintActive)
     {
         SimulationParameters simParams = simulationParametersBuffer[0];
 
-        // maxCellState uses shift-by-1 encoding: actualValue = storedBits + 1.
         uint maxCellState      = uint(simParams.birthAndMaxCellStateRules >> MAX_CELL_STATE_SHIFT) + 1u;
         uint neighborhoodFlags = uint(simParams.survivalAndNeighborhoodRules >> NEIGHBORHOOD_FLAGS_SHIFT);
-        bool wraps             = (neighborhoodFlags & WRAP_NEIGHBORS_MASK) != 0u;
 
-        // Lower 60 bits: raw bitmask (K=0) or 1-based index into validBitmasks (K>0).
         uint64_t birthRulesBitmask;
         uint64_t survivalRulesBitmask;
         if (MAX_RULE_BITS > 0u)
@@ -145,21 +150,16 @@ void computeMain(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupT
             survivalRulesBitmask = simParams.survivalAndNeighborhoodRules & PERMUTATION_BIT_MASK;
         }
 
-        uint inPacked  = cellsIn[uintIndex];
+        uint uintIdx = uint(uintX) + uint(uintY) * UINTS_PER_ROW + uint(uintZ) * UINTS_PER_SLICE;
+        uint inPacked = cellsIn[uintIdx];
         uint outPacked = 0u;
 
-        // Process up to 8 cells that share this uint. Each cell is independent —
-        // no thread-vs-thread races since each thread owns its own uint end-to-end.
         for (uint nibble = 0u; nibble < CELLS_PER_UINT; nibble++)
         {
-            uint cellIndex = uintIndex * CELLS_PER_UINT + nibble;
-            if (cellIndex >= totalCells) break;
+            int cx = uintX * int(CELLS_PER_UINT) + int(nibble);
+            if (cx >= int(dims.x)) break;
 
-            uint xCoord = cellIndex % dims.x;
-            uint yCoord = (cellIndex / dims.x) % dims.y;
-            uint zCoord = (cellIndex / (dims.x * dims.y)) % dims.z;
-
-            if (!CubeFaceEdgeCorner::IsCellViable(uint3(xCoord, yCoord, zCoord), dims))
+            if (!CubeFaceEdgeCorner::IsCellViable(uint3(uint(cx), uint(uintY), uint(uintZ)), dims))
             {
                 diedCount++;
                 continue;
@@ -167,7 +167,7 @@ void computeMain(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupT
 
             uint currentCell = (inPacked >> (nibble * 4u)) & CELL_STATE_MASK;
             int aliveNeighborCount = countAliveNeighbors(
-                int3(xCoord, yCoord, zCoord), maxCellState, dims, wraps, neighborhoodFlags);
+                int3(cx, uintY, uintZ), maxCellState, dims, neighborhoodFlags);
 
             uint newState = 0u;
             if (currentCell == maxCellState)
@@ -207,26 +207,36 @@ void computeMain(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupT
             outPacked |= (newState & CELL_STATE_MASK) << (nibble * 4u);
         }
 
-        cellsOut[uintIndex] = outPacked;
+        cellsOut[uintIdx] = outPacked;
     }
 
-    // Reduce per-thread counts into workgroup shared accumulators.
-    if (diedCount     > 0u) InterlockedAdd(workgroupCounts[0], diedCount);
-    if (dyingCount    > 0u) InterlockedAdd(workgroupCounts[1], dyingCount);
-    if (bornCount     > 0u) InterlockedAdd(workgroupCounts[2], bornCount);
-    if (survivedCount > 0u) InterlockedAdd(workgroupCounts[3], survivedCount);
+    // Wave-intrinsic stats reduction (32-thread warps): each warp sums its
+    // counts via WaveActiveSum, then the first lane of each warp commits one
+    // InterlockedAdd-to-groupshared per counter. 8 warps × 4 counters = 32
+    // atomicAdds-to-groupshared per workgroup (vs 256 × 4 = 1024 in the prior
+    // per-thread variant).
+    uint warpDied     = WaveActiveSum(diedCount);
+    uint warpDying    = WaveActiveSum(dyingCount);
+    uint warpBorn     = WaveActiveSum(bornCount);
+    uint warpSurvived = WaveActiveSum(survivedCount);
+    if (WaveIsFirstLane())
+    {
+        if (warpDied     > 0u) InterlockedAdd(workgroupCounts[0], warpDied);
+        if (warpDying    > 0u) InterlockedAdd(workgroupCounts[1], warpDying);
+        if (warpBorn     > 0u) InterlockedAdd(workgroupCounts[2], warpBorn);
+        if (warpSurvived > 0u) InterlockedAdd(workgroupCounts[3], warpSurvived);
+    }
     GroupMemoryBarrierWithGroupSync();
 
-    // First 4 threads each commit one workgroup total to the global snapshot.
-    if (localId.x < 4u)
+    if (linearLocal < 4u)
     {
-        uint workgroupTotal = workgroupCounts[localId.x];
+        uint workgroupTotal = workgroupCounts[linearLocal];
         if (workgroupTotal > 0u)
         {
-            if      (localId.x == 0u) InterlockedAdd(gridSnapshotBuffer[0].numberOfDeadCells,      workgroupTotal);
-            else if (localId.x == 1u) InterlockedAdd(gridSnapshotBuffer[0].numberOfDyingCells,     workgroupTotal);
-            else if (localId.x == 2u) InterlockedAdd(gridSnapshotBuffer[0].numberOfCellsBorn,      workgroupTotal);
-            else                       InterlockedAdd(gridSnapshotBuffer[0].numberOfSurvivingCells, workgroupTotal);
+            if      (linearLocal == 0u) InterlockedAdd(gridSnapshotBuffer[0].numberOfDeadCells,      workgroupTotal);
+            else if (linearLocal == 1u) InterlockedAdd(gridSnapshotBuffer[0].numberOfDyingCells,     workgroupTotal);
+            else if (linearLocal == 2u) InterlockedAdd(gridSnapshotBuffer[0].numberOfCellsBorn,      workgroupTotal);
+            else                         InterlockedAdd(gridSnapshotBuffer[0].numberOfSurvivingCells, workgroupTotal);
         }
     }
 }

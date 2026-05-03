@@ -1,0 +1,79 @@
+$ErrorActionPreference = "Stop"
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
+$exe = Join-Path $repoRoot "build\Release\Cave.exe"
+$searchDir = Join-Path $repoRoot "build\Release\data\search"
+$progressFile = Join-Path $searchDir "image_probe_variant_c_progress.txt"
+$resultsFile = Join-Path $searchDir "image_probe_variant_c_results.csv"
+
+"" | Out-File -FilePath $progressFile -Encoding utf8
+"=== Image-mode probe variant C (r32ui + neighbor-shared) sweep (cube 49^3 FE K=2 wg=256 ticks=20 dual-GPU --search-image-mode) ===" | Out-File -FilePath $progressFile -Append -Encoding utf8
+"=== Skipping p=2, 512, 1024 (informational only / overhead-bound) - focus on meaningful regime ===" | Out-File -FilePath $progressFile -Append -Encoding utf8
+
+$partitionCounts = @(1, 4, 8, 16, 32, 64, 128, 256)
+$results = @()
+foreach ($p in $partitionCounts) {
+    $output = "build/Release/data/search/imageC_p${p}"
+    $absOutput = Join-Path $repoRoot $output
+    Remove-Item -Recurse -Force $absOutput -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force "${absOutput}cube" -ErrorAction SilentlyContinue
+
+    $stdoutPath = Join-Path $searchDir "imageC_p${p}.log"
+    "[$([DateTime]::Now.ToString('HH:mm:ss'))] starting p=$p" | Out-File -FilePath $progressFile -Append -Encoding utf8
+
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $proc = Start-Process -FilePath $exe -ArgumentList @(
+        "--mode", "search",
+        "--shape", "cube",
+        "--grid", "49",
+        "--neighborhood", "FE",
+        "--chunks-per-config", "$p",
+        "--search-workgroup-size", "256",
+        "--max-rule-bits", "2",
+        "--min-cs", "2",
+        "--max-cs-range", "3",
+        "--ticks", "20",
+        "--dual-gpu",
+        "--headless",
+        "--search-image-mode",
+        "--output", $output
+    ) -NoNewWindow -PassThru -Wait -RedirectStandardOutput $stdoutPath -RedirectStandardError "$stdoutPath.err" -WorkingDirectory $repoRoot
+    $sw.Stop()
+    $elapsed = [math]::Round($sw.Elapsed.TotalSeconds, 2)
+
+    $aggCandidate = Get-ChildItem -Path $searchDir -Recurse -Filter "*aggregate.jsonl" -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -like "*imageC_p${p}cube*" } | Select-Object -First 1
+    if (-not $aggCandidate) {
+        "[$([DateTime]::Now.ToString('HH:mm:ss'))] FAILED p=$p (no aggregate; check ${stdoutPath}.err and exit code $($proc.ExitCode))" | Out-File -FilePath $progressFile -Append -Encoding utf8
+        $results += [PSCustomObject]@{
+            Partitions = $p
+            WallSeconds = $elapsed
+            Rows = 0
+            TotalRunsSum = 0
+            Dups = 0
+            Status = "FAILED"
+        }
+        $results | Export-Csv -Path $resultsFile -NoTypeInformation -Encoding utf8
+        Get-Process -Name Cave -ErrorAction SilentlyContinue | Stop-Process -Force
+        continue
+    }
+    $rows = Get-Content $aggCandidate.FullName | ForEach-Object { ConvertFrom-Json $_ }
+    $rowCount = $rows.Count
+    $totalRunsSum = ($rows | Measure-Object totalRuns -Sum).Sum
+    $dups = ($rows | Where-Object { $_.totalRuns -gt 1 }).Count
+
+    $results += [PSCustomObject]@{
+        Partitions = $p
+        WallSeconds = $elapsed
+        Rows = $rowCount
+        TotalRunsSum = $totalRunsSum
+        Dups = $dups
+        Status = "OK"
+    }
+    "[$([DateTime]::Now.ToString('HH:mm:ss'))] done p=$p time=${elapsed}s rows=$rowCount totalRuns=$totalRunsSum dups=$dups" | Out-File -FilePath $progressFile -Append -Encoding utf8
+    $results | Export-Csv -Path $resultsFile -NoTypeInformation -Encoding utf8
+    Get-Process -Name Cave -ErrorAction SilentlyContinue | Stop-Process -Force
+}
+
+"" | Out-File -FilePath $progressFile -Append -Encoding utf8
+"=== ALL DONE ===" | Out-File -FilePath $progressFile -Append -Encoding utf8
+$results | Format-Table -AutoSize | Out-String | Out-File -FilePath $progressFile -Append -Encoding utf8

@@ -57,12 +57,12 @@ namespace Cave
 		// N > 1 emits N copies of each chunk, each pre-assigned a non-overlapping slice
 		// of the survival rule range. Lets a single-grid filled-spawn search saturate
 		// dual GPUs without relying on reactive cross-chunk work-stealing.
-		int chunksPerConfig = 1;
+		int chunksPerConfig = 64;
 
 		// Threads per workgroup for the simulation compute kernel. Lower values produce
 		// more workgroups in flight per dispatch (better SM coverage when grids are small)
 		// at the cost of more launch overhead per warp. Valid: 32, 64, 128, 256, 512.
-		int searchWorkgroupSize = 64;
+		int searchWorkgroupSize = 256;
 
 		// Rendering params
 		std::string birthRules;

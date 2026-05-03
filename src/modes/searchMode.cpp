@@ -1071,12 +1071,14 @@ namespace Cave
 			chunkConfig.gridDimensionX, chunkConfig.gridDimensionY, chunkConfig.gridDimensionZ, _sweepContext.maxTicksToSurvive,
 			static_cast<uint32_t>(_sweepContext.maxRuleBits));
 
+		bool simulationUses3DDispatch = _sweepContext.shape && _sweepContext.shape->GetName() == "cube";
 		auto searchSystem = std::make_unique<SearchSystem>(
 			services.deviceContext, _sweepContext.gridConfigs, chunkConfig,
 			simulationShaderModule, managerShaderModule,
 			_sweepContext.outputFolder, chunkPrefix + "_gpu0",
 			static_cast<uint32_t>(_sweepContext.maxRuleBits),
-			static_cast<uint32_t>(_sweepContext.simulationWorkgroupSize));
+			static_cast<uint32_t>(_sweepContext.simulationWorkgroupSize),
+			simulationUses3DDispatch);
 		searchSystem->SubmitNextTick();
 
 		_activeSystemsGpu0.push_back(std::move(searchSystem));
@@ -1110,12 +1112,14 @@ namespace Cave
 			chunkConfig.gridDimensionX, chunkConfig.gridDimensionY, chunkConfig.gridDimensionZ, _sweepContext.maxTicksToSurvive,
 			static_cast<uint32_t>(_sweepContext.maxRuleBits));
 
+		bool simulationUses3DDispatch = _sweepContext.shape && _sweepContext.shape->GetName() == "cube";
 		auto searchSystem = std::make_unique<SearchSystem>(
 			*services.secondaryDeviceContext, _sweepContext.gridConfigs, chunkConfig,
 			simulationShaderModule, managerShaderModule,
 			_sweepContext.outputFolder, chunkPrefix + "_gpu1",
 			static_cast<uint32_t>(_sweepContext.maxRuleBits),
-			static_cast<uint32_t>(_sweepContext.simulationWorkgroupSize));
+			static_cast<uint32_t>(_sweepContext.simulationWorkgroupSize),
+			simulationUses3DDispatch);
 		searchSystem->SubmitNextTick();
 
 		_activeSystemsGpu1.push_back(std::move(searchSystem));

@@ -17,14 +17,16 @@ namespace Cave
 							   const std::string &outputFolderPath,
 							   const std::string &filePrefix,
 							   uint32_t maxRuleBits,
-							   uint32_t simulationWorkgroupSize)
+							   uint32_t simulationWorkgroupSize,
+							   bool simulationUses3DDispatch)
 		: _deviceContext{deviceContext},
 		  _gridCount{static_cast<uint32_t>(gridConfigs.size())},
 		  _totalCellCount{chunkConfig.gridDimensionX * chunkConfig.gridDimensionY * chunkConfig.gridDimensionZ},
 		  _gridConfigs{gridConfigs},
 		  _chunkConfig{chunkConfig},
 		  _maxRuleBits{maxRuleBits},
-		  _simulationWorkgroupSize{simulationWorkgroupSize}
+		  _simulationWorkgroupSize{simulationWorkgroupSize},
+		  _simulationUses3DDispatch{simulationUses3DDispatch}
 	{
 		_computeCommandPool = _deviceContext.GetComputeCommandPool();
 		_tickFence = _deviceContext.CreateFence();
@@ -493,12 +495,18 @@ namespace Cave
 				{}, resetToComputeBarrier, {}, {});
 		}
 
-		// Each compute thread processes one packed uint (= 8 cells); dispatch groups
-		// = ceil(totalUints / workgroupSize). Workgroup size is parameterized — see
-		// _simulationWorkgroupSize and the matching `layout(local_size_x = N)` in
-		// the generated simulation shader.
+		// Cube simulation shader uses 3D dispatch with fixed (8, 8, 4) = 256 numthreads.
+		// Each thread owns 1 packed uint = 8 cells along X. Workgroup covers 8 uints
+		// × 8 Y × 4 Z = 64×8×4 cells = 2048 cells. Dispatch shape: per-axis ceil-divide
+		// with X-axis sized in uints (= ceil(gridX/8)). _simulationWorkgroupSize is
+		// kept on the SearchSystem for ERD's 1D-dispatch path; cube ignores it.
+		uint32_t uintsPerRow = (_chunkConfig.gridDimensionX + 7u) / 8u;
+		uint32_t cubeDispatchX = (uintsPerRow + 7u) / 8u;
+		uint32_t cubeDispatchY = (_chunkConfig.gridDimensionY + 7u) / 8u;
+		uint32_t cubeDispatchZ = (_chunkConfig.gridDimensionZ + 3u) / 4u;
+		// ERD path (legacy 1D dispatch) — kept for the ERD shape's existing shader.
 		uint32_t totalUints = (_totalCellCount + 7u) / 8u;
-		uint32_t dispatchGroupCount = (totalUints + _simulationWorkgroupSize - 1u) / _simulationWorkgroupSize;
+		uint32_t erdDispatchGroupCount = (totalUints + _simulationWorkgroupSize - 1u) / _simulationWorkgroupSize;
 
 		// Phase 1: zero snapshots + dispatch simulation for all grids
 		if (queryManager) queryManager->WriteTimestamp(_commandBuffer, queryPool, vk::PipelineStageFlagBits::eTopOfPipe, "searchSimulation_start");
@@ -519,7 +527,10 @@ namespace Cave
 
 			_simulationPipeline->Bind(_commandBuffer, vk::PipelineBindPoint::eCompute,
 				0, Pipeline::DescriptorOption{gridIndex});
-			_commandBuffer.dispatch(dispatchGroupCount, 1, 1);
+			if (_simulationUses3DDispatch)
+				_commandBuffer.dispatch(cubeDispatchX, cubeDispatchY, cubeDispatchZ);
+			else
+				_commandBuffer.dispatch(erdDispatchGroupCount, 1, 1);
 		}
 
 		if (queryManager) queryManager->WriteTimestamp(_commandBuffer, queryPool, vk::PipelineStageFlagBits::eBottomOfPipe, "searchSimulation_end");

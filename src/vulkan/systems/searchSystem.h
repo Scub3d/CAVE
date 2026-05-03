@@ -144,6 +144,11 @@ namespace Cave
 		// = better SM coverage when each chunk's grid is small.
 		uint32_t _simulationWorkgroupSize = 64;
 
+		// Cube simulation shader uses 3D dispatch with fixed (8, 8, 4) numthreads and
+		// cooperative tile loading. ERD still uses 1D dispatch keyed off
+		// _simulationWorkgroupSize. This flag picks which dispatch shape to record.
+		bool _simulationUses3DDispatch = false;
+
 		// Cumulative work-stealing statistics, exposed via GetStealStatistics(). Zeroed
 		// at SearchSystem construction.
 		uint64_t _workStealCount = 0;
@@ -219,7 +224,8 @@ namespace Cave
 					 const std::string &outputFolderPath,
 					 const std::string &filePrefix,
 					 uint32_t maxRuleBits,
-					 uint32_t simulationWorkgroupSize);
+					 uint32_t simulationWorkgroupSize,
+					 bool simulationUses3DDispatch);
 		~SearchSystem();
 
 		SearchSystem(const SearchSystem &) = delete;
