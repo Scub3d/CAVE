@@ -21,7 +21,9 @@ int main(int argc, char **argv)
     cxxopts::Options options("Cave", "GPU-accelerated 3D cellular automata simulation engine");
 
     options.add_options()
-        ("mode", "Application mode: render, search, video", cxxopts::value<std::string>()->default_value(""))
+        ("mode", "Application mode: render, search, video, looking-glass", cxxopts::value<std::string>()->default_value(""))
+        ("lg-display", "Looking Glass display index (0-based; -1 = first available)", cxxopts::value<int>()->default_value("-1"))
+        ("lg-test", "Looking Glass interop smoke test: context | roundtrip | save-quilt (development only)", cxxopts::value<std::string>()->default_value(""))
         ("birth", "Birth rules (e.g., \"1,4-6\")", cxxopts::value<std::string>()->default_value(""))
         ("survival", "Survival rules (e.g., \"4\")", cxxopts::value<std::string>()->default_value(""))
         ("max-cs", "Max cell state", cxxopts::value<int>()->default_value("5"))
@@ -98,9 +100,14 @@ int main(int argc, char **argv)
             config.mode = ApplicationMode::Search;
         else if (modeStr == "video")
             config.mode = ApplicationMode::VideoEncoding;
+        else if (modeStr == "looking-glass" || modeStr == "lg")
+        {
+            config.mode = ApplicationMode::LookingGlass;
+            config.lookingGlassRequested = true;
+        }
         else
         {
-            LOG_ERROR("Unknown mode: {}. Use render, search, or video.", modeStr);
+            LOG_ERROR("Unknown mode: {}. Use render, search, video, or looking-glass.", modeStr);
             return 1;
         }
 
@@ -222,6 +229,17 @@ int main(int argc, char **argv)
     config.dualGpu = result["dual-gpu"].as<bool>();
     config.storageMode = (result["storage-mode"].as<std::string>() == "image")
         ? CellStateStorageMode::Image : CellStateStorageMode::Buffer;
+
+    // Looking Glass: --lg-display sets display index. --lg-test=NAME runs an interop
+    // smoke test (handled in Engine, not here). Either flag forces the LG path on so
+    // the device extensions get enabled.
+    config.lookingGlassDisplayIndex = result["lg-display"].as<int>();
+    {
+        std::string lgTest = result["lg-test"].as<std::string>();
+        if (!lgTest.empty() || result["lg-display"].count() > 0 || config.mode == ApplicationMode::LookingGlass)
+            config.lookingGlassRequested = true;
+        config.lookingGlassTestName = lgTest;
+    }
     {
         std::string shapeStr = result["shape"].as<std::string>();
         std::transform(shapeStr.begin(), shapeStr.end(), shapeStr.begin(),

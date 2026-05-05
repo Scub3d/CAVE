@@ -323,6 +323,46 @@ namespace Cave
 
 			if (ImGui::Button("Video Encoding Mode", ImVec2(buttonWidth, buttonHeight)))
 				_enterModeRequested = ApplicationMode::VideoEncoding;
+
+			ImGui::Spacing();
+
+			if (ImGui::Button("Looking Glass Mode", ImVec2(buttonWidth, buttonHeight)))
+				_enterModeRequested = ApplicationMode::LookingGlass;
+		}
+		ImGui::End();
+	}
+
+	void GuiSystem::BuildLookingGlassPanel()
+	{
+		// Compact panel docked top-right when LG mode is active. Sliders are
+		// reactive — LookingGlassMode reads these every frame and forwards
+		// viewcone/zoom into the per-view camera offset push constant. Display
+		// index changes require a mode re-enter (Bridge owns the GL window).
+		ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(320, 200), ImGuiCond_FirstUseEver);
+		if (ImGui::Begin("Looking Glass", nullptr, ImGuiWindowFlags_None))
+		{
+			ImGui::Text("Display index (Bridge-reported)");
+			ImGui::DragInt("##lgDisplay", &_state.lookingGlassDisplayIndex, 0.1f, 0, 7);
+			ImGui::TextDisabled("(re-enter mode to apply)");
+			ImGui::Separator();
+
+			ImGui::Text("View cone (degrees)");
+			ImGui::SliderFloat("##lgViewcone", &_state.lookingGlassViewconeDegrees, 0.0f, 60.0f, "%.1f");
+
+			ImGui::Text("Zoom");
+			ImGui::SliderFloat("##lgZoom", &_state.lookingGlassZoom, 0.5f, 2.0f, "%.2f");
+
+			ImGui::Text("View count");
+			const char* viewCountLabels[] = { "24", "32", "45", "48" };
+			const int viewCountValues[] = { 24, 32, 45, 48 };
+			int currentIdx = 3;
+			for (int i = 0; i < 4; i++)
+				if (viewCountValues[i] == _state.lookingGlassViewCount) currentIdx = i;
+			if (ImGui::Combo("##lgViewCount", &currentIdx, viewCountLabels, 4))
+				_state.lookingGlassViewCount = viewCountValues[currentIdx];
+
+			ImGui::TextDisabled("Bridge interpolates if < 48 views supplied.");
 		}
 		ImGui::End();
 	}

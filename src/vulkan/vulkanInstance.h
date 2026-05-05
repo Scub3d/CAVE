@@ -64,6 +64,7 @@ namespace Cave
 	private: // Variables
 		bool _headless = false;
 		int _forcedGpuIndex = -1; // -1 = auto-select, 0+ = force specific GPU
+		bool _lookingGlassRequested = false; // enables Vulkan-OpenGL interop ext bundle
 		const char *_applicationName = "3D Cellular Automata Vulkan Engine";
 
 		std::vector<const char *> _activeInstanceLayers{};
@@ -130,6 +131,14 @@ namespace Cave
 		void SetHeadless(bool headless) { _headless = headless; }
 		bool IsHeadless() const { return _headless; }
 		void SetForcedGpuIndex(int gpuIndex) { _forcedGpuIndex = gpuIndex; }
+
+		// Enable Vulkan-OpenGL interop instance/device extensions for the Looking Glass
+		// mode. Must be called before Initialize(). When true, GetRequiredExtensions()
+		// also requests VK_KHR_external_memory_capabilities and
+		// VK_KHR_external_semaphore_capabilities; CreateDeviceContext propagates the
+		// flag so the device side enables the matching device extensions + multiview.
+		void SetLookingGlassRequested(bool requested) { _lookingGlassRequested = requested; }
+		bool IsLookingGlassRequested() const { return _lookingGlassRequested; }
 
 		// ---- Instance-level accessors ----
 

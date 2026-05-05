@@ -97,5 +97,13 @@ namespace Cave
 		int forcedGpuIndex = -1; // -1 = auto-select, 0+ = force specific GPU
 		bool dualGpu = false;
 		CellStateStorageMode storageMode = CellStateStorageMode::Image;
+
+		// Looking Glass Portrait (holographic display) output. When mode == LookingGlass
+		// or this flag is set, Vulkan instance + device extensions for OpenGL interop and
+		// multiview are enabled, and the LookingGlassMode handler is selected. Off by
+		// default — extensions only enabled when the user actually wants this output.
+		bool lookingGlassRequested = false;
+		int lookingGlassDisplayIndex = -1; // -1 = first available display reported by Bridge
+		std::string lookingGlassTestName; // "context" / "roundtrip" / "save-quilt" / "" for normal LG mode
 	};
 }

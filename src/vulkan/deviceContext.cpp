@@ -1,3 +1,24 @@
+// Win32 platform support must be requested BEFORE the vulkan.hpp include (via
+// deviceContext.h) so the dispatch loader's init() resolves the Win32 entry
+// points (vkGetMemoryWin32HandleKHR / vkGetSemaphoreWin32HandleKHR / etc.).
+// Without this define, those function pointers stay null in the dldi struct
+// from this TU's perspective, even after init() runs.
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#define VK_USE_PLATFORM_WIN32_KHR
+// Windows.h defines CreateSemaphore / CreateFence as macros that expand to the A/W
+// variants. Our DeviceContext has methods of the same names — undef so the methods
+// keep their identifiers. Same pattern used in vulkanInstance.h.
+#ifdef CreateSemaphore
+#undef CreateSemaphore
+#endif
+#ifdef CreateFence
+#undef CreateFence
+#endif
+#endif
+
 #include "deviceContext.h"
 #include <common/logger.h>
 
@@ -33,11 +54,37 @@ namespace Cave
 				heapIndex, heap.size / (1024ULL * 1024 * 1024), deviceLocal);
 		}
 
+		// Looking Glass mode needs Vulkan-OpenGL interop extensions on top of the base
+		// set. Append before CreateLogicalDevice so they're enabled at device creation.
+		// Validation step happens implicitly: vkCreateDevice fails loudly if any are
+		// unsupported on the chosen GPU. Enabled only when explicitly requested so we
+		// don't refuse otherwise-suitable GPUs that lack one of these extensions.
+		if (_lookingGlassRequested)
+		{
+			_deviceExtensions.push_back(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
+			_deviceExtensions.push_back(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
+			_deviceExtensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
+			_deviceExtensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
+			_deviceExtensions.push_back(VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME);
+			_deviceExtensions.push_back(VK_KHR_MULTIVIEW_EXTENSION_NAME);
+			LOG_INFO("Looking Glass mode: enabling 6 additional device extensions for Vulkan-OpenGL interop + multiview");
+		}
+
 		FindQueueFamilies(surface);
 		CreateLogicalDevice();
 		CreateQueues();
 		SetupVMA(instance);
 		_colorFormat = vk::Format::eR8G8B8A8Unorm;
+
+		// After the logical device is created, extend the dispatch loader to also
+		// resolve device-level extension functions (vkGetMemoryWin32HandleKHR,
+		// vkGetSemaphoreWin32HandleKHR, etc.). Without this, Win32 export calls
+		// dereference null function pointers and segfault. Only matters for LG
+		// mode but cheap to do unconditionally.
+		if (_dldi)
+		{
+			_dldi->init(instance, vkGetInstanceProcAddr, _device, vkGetDeviceProcAddr);
+		}
 	}
 
 	void DeviceContext::FinishSetup(uint32_t framesInFlight)
@@ -133,16 +180,29 @@ namespace Cave
 			&vulkan12Features	  // pNext
 		);
 
+		// Looking Glass renders 48 views per frame; the quilt renderer uses
+		// VK_KHR_multiview to amortize draw-call overhead across views via gl_ViewIndex.
+		// Feature chain only extended when LG is requested — keeps unrelated runs lean.
+		vk::PhysicalDeviceMultiviewFeatures multiviewFeatures{};
+		if (_lookingGlassRequested)
+		{
+			multiviewFeatures.multiview = vk::True;
+			multiviewFeatures.pNext = &dynamicRenderingFeatures;
+		}
+		void* featuresChainHead = _lookingGlassRequested
+			? static_cast<void*>(&multiviewFeatures)
+			: static_cast<void*>(&dynamicRenderingFeatures);
+
 		vk::DeviceCreateInfo deviceInfo = vk::DeviceCreateInfo(
 			vk::DeviceCreateFlags(),							   // flags
 			static_cast<uint32_t>(queueCreateInfos.size()),		   // queueCreateInfoCount
 			queueCreateInfos.data(),							   // pQueueCreateInfo
 			0,													   // enabledLayerCount
 			nullptr,											   // ppEnabledLayers
-			static_cast<uint32_t>(_deviceExtensions.size()), // enabledExtensionCount
-			_deviceExtensions.data(),						  // ppEnabledExtension
+			static_cast<uint32_t>(_deviceExtensions.size()),	   // enabledExtensionCount
+			_deviceExtensions.data(),							   // ppEnabledExtension
 			&deviceFeatures,									   // pEnabledFeatures
-			&dynamicRenderingFeatures							   // pNext
+			featuresChainHead									   // pNext (multiview before dynamicRendering when LG; else dynamicRendering directly)
 		);
 
 		try

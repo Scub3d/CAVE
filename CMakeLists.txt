@@ -160,6 +160,38 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 	slang
 )
 
+# --- Looking Glass Portrait integration (Vulkan-OpenGL interop) -------------
+# OpenGL function loading is done inline via glfwGetProcAddress (no GLAD vendoring
+# needed; we only use ~10 GL symbols total, all hand-typed in glInterop.cpp).
+# Bridge SDK is the one external dependency, vendored at lib/bridge/. Without
+# Bridge the LookingGlassMode will fail gracefully with a clear log message.
+
+option(LOOKING_GLASS_BUILD "Compile Looking Glass interop paths" ON)
+
+if(LOOKING_GLASS_BUILD)
+	target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan)
+	if(WIN32)
+		target_link_libraries(${PROJECT_NAME} PRIVATE opengl32)
+	endif()
+	target_compile_definitions(${PROJECT_NAME} PRIVATE LOOKING_GLASS_BUILD)
+	message(STATUS "Looking Glass: interop paths compiled in (uses inline GL function loader)")
+endif()
+
+# Bridge SDK has no shipped .lib — only headers + DLL. We use the Controller
+# class declared inside bridge.h, which calls LoadLibrary on bridge_inproc.dll
+# at runtime (auto-discovers the installed Bridge service via its settings.json).
+# So all we need to enable LG mode is the headers; the DLL is already where
+# Bridge installed it on the system.
+if(LOOKING_GLASS_BUILD AND WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/lib/bridge/bridge.h")
+	target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/lib/bridge")
+	# Controller uses SHGetKnownFolderPath / CoTaskMemFree → Shell32 + Ole32.
+	target_link_libraries(${PROJECT_NAME} PRIVATE Shell32 Ole32)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE LOOKING_GLASS_HAS_BRIDGE)
+	message(STATUS "Looking Glass: Bridge SDK headers found — LookingGlass mode enabled (Controller/LoadLibrary path)")
+else()
+	message(STATUS "Looking Glass: Bridge SDK not vendored at lib/bridge — LookingGlass mode unavailable")
+endif()
+
 # 6. Asset management
 #
 # Ensure runtime-output directories exist in the source tree. `data/`, `videos/`, and

@@ -21,6 +21,7 @@ namespace Cave
 	std::unique_ptr<DeviceContext> VulkanInstance::CreateDeviceContext(vk::PhysicalDevice physicalDevice)
 	{
 		auto deviceContext = std::make_unique<DeviceContext>();
+		deviceContext->SetLookingGlassRequested(_lookingGlassRequested);
 		deviceContext->Initialize(_instance, physicalDevice, _surface, _debugMode, &_dldi);
 		return deviceContext;
 	}
@@ -219,6 +220,16 @@ namespace Cave
 		if (_debugMode)
 		{
 			extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+		}
+
+		// Looking Glass needs the capability extensions to query the physical device's
+		// support for exporting Win32 handles for memory and semaphores. Enabled only
+		// when the user actually selected LG mode so we don't refuse devices that lack
+		// these capabilities for unrelated runs.
+		if (_lookingGlassRequested)
+		{
+			extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+			extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
 		}
 
 		if (_debugMode)

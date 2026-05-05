@@ -3,6 +3,10 @@
 #include "modes/renderingMode.h"
 #include "modes/searchMode.h"
 #include "modes/videoEncodingMode.h"
+#ifdef LOOKING_GLASS_BUILD
+#include "vulkan/glInterop.h"
+#include "modes/lookingGlassMode.h"
+#endif
 
 #include <glm/glm.hpp>
 #include <filesystem>
@@ -20,7 +24,21 @@ namespace Cave
 		if (_startupConfig)
 		{
 			_vulkanInstance.SetHeadless(_startupConfig->headless || !_startupConfig->testName.empty());
-			_vulkanInstance.SetForcedGpuIndex(_startupConfig->forcedGpuIndex);
+
+			// LG mode requires Vulkan and OpenGL on the same physical GPU
+			// (Win32 OPAQUE_WIN32 export doesn't work cross-GPU). The display GPU
+			// is the one driving the desktop, which Windows enumerates as GPU 0
+			// in nearly every multi-GPU workstation. Default --gpu 0 when LG is
+			// requested without an explicit --gpu override.
+			int forcedGpuIndex = _startupConfig->forcedGpuIndex;
+			if (_startupConfig->lookingGlassRequested && forcedGpuIndex < 0)
+			{
+				LOG_INFO("Looking Glass: forcing --gpu 0 (Vulkan/GL must share a physical GPU; pass --gpu N explicitly to override)");
+				forcedGpuIndex = 0;
+			}
+
+			_vulkanInstance.SetForcedGpuIndex(forcedGpuIndex);
+			_vulkanInstance.SetLookingGlassRequested(_startupConfig->lookingGlassRequested);
 		}
 		_vulkanInstance.Initialize();
 		_gpu0 = _vulkanInstance.CreateDeviceContext();
@@ -239,6 +257,19 @@ namespace Cave
 
 	void Engine::Run()
 	{
+#ifdef LOOKING_GLASS_BUILD
+		// Looking Glass interop smoke tests short-circuit the main run loop. Useful
+		// for development / CI to verify GL coexistence + Vulkan-GL handle round-
+		// tripping without setting up a full LG mode. Exits cleanly after running.
+		if (_startupConfig && !_startupConfig->lookingGlassTestName.empty())
+		{
+			int rc = RunLookingGlassSmokeTest(_startupConfig->lookingGlassTestName, _gpu0.get());
+			LOG_INFO("--lg-test={} returned {}", _startupConfig->lookingGlassTestName, rc);
+			_applicationRunning = false;
+			return;
+		}
+#endif
+
 		_previousFrameTime = glfwGetTime();
 
 		while (_applicationRunning)
@@ -322,6 +353,14 @@ namespace Cave
 		case ApplicationMode::VideoEncoding:
 			_activeMode = std::make_unique<VideoEncodingMode>();
 			break;
+		case ApplicationMode::LookingGlass:
+#ifdef LOOKING_GLASS_BUILD
+			_activeMode = std::make_unique<LookingGlassMode>();
+			break;
+#else
+			LOG_ERROR("Looking Glass mode requested but LOOKING_GLASS_BUILD is OFF. Re-configure with -DLOOKING_GLASS_BUILD=ON.");
+			return;
+#endif
 		default:
 			return;
 		}

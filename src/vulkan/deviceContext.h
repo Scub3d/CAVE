@@ -52,11 +52,15 @@ namespace Cave
 		std::vector<const char *> _activeDeviceLayer{};
 		std::vector<const char *> _activeDeviceExtensions{};
 
-		const std::vector<const char *> _deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
-															 VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME, VK_KHR_SPIRV_1_4_EXTENSION_NAME, VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
-															 VK_KHR_VIDEO_QUEUE_EXTENSION_NAME, VK_KHR_VIDEO_ENCODE_QUEUE_EXTENSION_NAME, VK_KHR_VIDEO_ENCODE_H264_EXTENSION_NAME};
+		// Mutated in Initialize() — Looking Glass mode appends 6 extra extensions when
+		// requested (external memory/semaphore + Win32 variants, dedicated allocation,
+		// multiview). See _lookingGlassRequested below.
+		std::vector<const char *> _deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
+													   VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME, VK_KHR_SPIRV_1_4_EXTENSION_NAME, VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
+													   VK_KHR_VIDEO_QUEUE_EXTENSION_NAME, VK_KHR_VIDEO_ENCODE_QUEUE_EXTENSION_NAME, VK_KHR_VIDEO_ENCODE_H264_EXTENSION_NAME};
 
 		bool _debugMode = false;
+		bool _lookingGlassRequested = false; // Set before Initialize() to opt into the LG ext bundle.
 
 		vk::DispatchLoaderDynamic* _dldi = nullptr;
 		uint32_t _framesInFlight = 2;
@@ -79,6 +83,13 @@ namespace Cave
 		void CreateDescriptorPool(uint32_t framesInFlight);
 
 	public: // Methods
+		// Must be called before Initialize() to enable Vulkan-OpenGL interop extensions
+		// for Looking Glass mode (external memory/semaphore + Win32 variants, dedicated
+		// allocation, multiview). When false, the device is created with the original
+		// extension set unchanged.
+		void SetLookingGlassRequested(bool requested) { _lookingGlassRequested = requested; }
+		bool IsLookingGlassRequested() const { return _lookingGlassRequested; }
+
 		void Initialize(vk::Instance instance, vk::PhysicalDevice physicalDevice, vk::SurfaceKHR surface, bool debugMode, vk::DispatchLoaderDynamic* dldi);
 		void FinishSetup(uint32_t framesInFlight);
 		void CreateResources(uint32_t framesInFlight);

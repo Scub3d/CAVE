@@ -92,6 +92,7 @@ namespace Cave
 
 		const glm::uvec4* GetGridDimensions() const { return _simulation.GetDimensions(); }
 		const SimulationParameters& GetSimulationParameters() const { return *_simulation.GetSimulationParameters(); }
+		uint32_t GetFramesInFlight() const { return _framesInFlight; }
 
 		// Domain decomposition queries
 		bool IsDomainDecomposed() const { return _domainConfig != nullptr; }

@@ -136,6 +136,19 @@ namespace Cave
 		// math. Valid: 32, 64, 128, 256, 512.
 		int searchWorkgroupSize = 256;
 
+		// Looking Glass parameters (M5)
+		// Only displayed in the GUI when ApplicationMode::LookingGlass is active.
+		// Display index 0 is the first available LG display reported by Bridge.
+		// Viewcone width drives the per-view eye offset in the quilt shader (35°
+		// is LG Portrait's stock value; range 0-60 covers most useful settings).
+		// Zoom is forwarded to draw_interop_quilt_texture_gl as the zoom param.
+		// View count lets the user trade quality for fps — Bridge interpolates
+		// when fewer views are supplied than the native 48.
+		int lookingGlassDisplayIndex = 0;
+		float lookingGlassViewconeDegrees = 35.0f;
+		float lookingGlassZoom = 1.0f;
+		int lookingGlassViewCount = 48; // Valid: 24, 32, 45, 48
+
 		// Video encoding parameters
 		int videoSourceMode = 0; // 0 = import JSON, 1 = manual entry (raw uint64)
 		char videoManualBirthRulesInput[32] = "0";
@@ -195,6 +208,13 @@ namespace Cave
 		void BuildModeSelector();
 
 	public:
+		// Per-frame ImGui panel for Looking Glass mode runtime controls.
+		// Called from LookingGlassMode::OnFrame between ImGui NewFrame and Render.
+		// Reactive: viewcone/zoom feed straight into per-view shader push constants.
+		// Display index changes are debounced (the user must re-enter the mode for
+		// Bridge to re-create its on-display GL window).
+		void BuildLookingGlassPanel();
+
 		// Rule string helpers
 		static std::string BitmaskToRuleString(uint64_t bitmask);
 		static uint64_t RuleStringToBitmask(const std::string& ruleString);
