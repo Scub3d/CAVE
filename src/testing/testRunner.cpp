@@ -145,6 +145,31 @@ namespace Cave
 		return {"sparse-benchmark", true, "PASS: benchmark complete"};
 	}
 
+	TestRunner::TestResult TestRunner::RunEncodeBenchmarkTest()
+	{
+		// Bench tier-1 for video-encode-pipeline optimization split-test.
+		// Mirrors the user's 4K dual-GPU 4201^3 encode workload at smaller grids:
+		// neighborhood=Corner+Wrap, B=1,2 / S=, MaxCellState=12, spawn=25 (filled).
+		// 30 ticks, single-GPU. Captures per-tick computeMs at fixed sample points.
+		LOG_INFO("[test:encode-benchmark] Mirrors 4K dual-GPU encode workload (CW, B=1,2, MaxCS=12, spawn=25)");
+		LOG_INFO("  {:>6s} {:>5s} {:>10s} {:>10s} {:>10s} {:>10s} {:>10s} {:>10s}",
+			"Grid", "Spawn", "T0", "T5", "T10", "T15", "T20", "T29");
+
+		// Three grid sizes within single-GPU memory budget (Quadro RTX 8000, 48 GB).
+		// 4001^3 needs ~64 GB for cell-state ping-pong → dual-GPU only.
+		std::vector<int> gridSizes = {1501, 2001, 3001};
+		for (int grid : gridSizes)
+		{
+			auto timings = RunSimulationTicks(grid, 25, 30, "1,2", "", 12, "CW", true);
+
+			auto getCompute = [&](size_t i) { return i < timings.size() ? timings[i].computeMs : 0.0f; };
+			LOG_INFO("  {:>5d}^3 {:>5d} {:>8.2f}ms {:>8.2f}ms {:>8.2f}ms {:>8.2f}ms {:>8.2f}ms {:>8.2f}ms",
+				grid, 25, getCompute(0), getCompute(5), getCompute(10), getCompute(15), getCompute(20), getCompute(29));
+		}
+
+		return {"encode-benchmark", true, "PASS: benchmark complete"};
+	}
+
 	TestRunner::TestResult TestRunner::RunRenderConsistencyTest()
 	{
 		LOG_INFO("[test:render-consistency] Running 225^3 five times, checking render...");
@@ -457,6 +482,8 @@ namespace Cave
 			results.push_back(RunComputeSkipTest());
 		if (runAll || testName == "sparse-benchmark")
 			results.push_back(RunSparseBenchmarkTest());
+		if (testName == "encode-benchmark")
+			results.push_back(RunEncodeBenchmarkTest());
 		if (runAll || testName == "render-consistency")
 			results.push_back(RunRenderConsistencyTest());
 		if (runAll || testName == "large-grid")
@@ -466,7 +493,7 @@ namespace Cave
 
 		if (results.empty())
 		{
-			LOG_ERROR("Unknown test: '{}'. Available: all, compute-skip, sparse-benchmark, render-consistency, large-grid, cli-rules", testName);
+			LOG_ERROR("Unknown test: '{}'. Available: all, compute-skip, sparse-benchmark, encode-benchmark, render-consistency, large-grid, cli-rules", testName);
 			return 1;
 		}
 

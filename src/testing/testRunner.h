@@ -24,6 +24,7 @@ namespace Cave
 			const std::string& neighborhood, bool enableComputeSkip);
 		TestResult RunComputeSkipTest();
 		TestResult RunSparseBenchmarkTest();
+		TestResult RunEncodeBenchmarkTest();
 		TestResult RunRenderConsistencyTest();
 		TestResult RunLargeGridTest();
 		TestResult RunCliRulesTest();
