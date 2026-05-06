@@ -15,7 +15,7 @@
 #include "../vulkan/systems/guiSystem.h"
 #include "../camera.h"
 #include "../shapes/cube.h"
-#include "../shapes/elongatedDodecahedron.h"
+#include "../shapes/elongatedRhombicDodecahedron.h"
 
 #include <glm/glm.hpp>
 #include <GLFW/glfw3.h>
@@ -99,7 +99,7 @@ namespace Cave
 		glm::uvec3 gridDims(guiState.gridDimensionX, guiState.gridDimensionY, guiState.gridDimensionZ);
 		glm::uvec3 spawnDims(guiState.spawnDimensionX, guiState.spawnDimensionY, guiState.spawnDimensionZ);
 		std::shared_ptr<Shape> shape = (guiState.shape == 1)
-			? ElongatedDodecahedron::Create()
+			? ElongatedRhombicDodecahedron::Create()
 			: Cube::Create();
 		ColorRules colorRules = services.guiSystem.BuildColorRules();
 		SimulationParameters simParams = services.guiSystem.BuildSimulationParameters();

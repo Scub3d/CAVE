@@ -76,7 +76,7 @@ void SearchShaderGenerator::GenerateSimulationShader(Shape &shape, uint32_t grid
 		LOG_DEBUG("Search simulation compute shader generated via Slang (cube)");
 		return;
 	}
-	if (shape.GetName() == "ElongatedDodecahedron")
+	if (shape.GetName() == "ElongatedRhombicDodecahedron")
 	{
 		_shaderModule = _slangCompiler.Compile(
 			_deviceContext, "shaders/slang", "searchSimulationERD", "computeMain", defines);
@@ -84,7 +84,7 @@ void SearchShaderGenerator::GenerateSimulationShader(Shape &shape, uint32_t grid
 		return;
 	}
 
-	LOG_FATAL("Unsupported shape '{}' for search simulation. Supported: 'cube', 'ElongatedDodecahedron'.", shape.GetName());
+	LOG_FATAL("Unsupported shape '{}' for search simulation. Supported: 'cube', 'ElongatedRhombicDodecahedron'.", shape.GetName());
 	throw std::runtime_error("Unsupported shape for search simulation: " + shape.GetName());
 }
 

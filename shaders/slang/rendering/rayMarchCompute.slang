@@ -6,7 +6,7 @@
 
 import shape;
 import cube;
-import elongatedDodecahedron;
+import elongatedRhombicDodecahedron;
 import cellStateUtils;
 
 // Select shape type via preprocessor define
@@ -21,9 +21,9 @@ typedef CubeFaceEdge SelectedShape;
 #elif SHAPE_TYPE == 2
 typedef CubeFaceEdgeCorner SelectedShape;
 #elif SHAPE_TYPE == 3
-typedef ElongatedDodecahedronFace SelectedShape;
+typedef ElongatedRhombicDodecahedronFace SelectedShape;
 #elif SHAPE_TYPE == 4
-typedef ElongatedDodecahedronFaceEdge SelectedShape;
+typedef ElongatedRhombicDodecahedronFaceEdge SelectedShape;
 #endif
 
 #ifdef USE_IMAGE
@@ -70,6 +70,12 @@ static const int3 numSkipBlocks = int3(
     (SKIP_GRID_DIM_Z + 7) / 8);
 #endif
 
+// Neighborhood flag masks (must match Simulation::*_NEIGHBORS_MASK bits 60-63 of survivalAndNeighborhoodRules)
+static const uint FACE_NEIGHBORS_MASK_BIT   = 1u;
+static const uint EDGE_NEIGHBORS_MASK_BIT   = 2u;
+static const uint CORNER_NEIGHBORS_MASK_BIT = 4u;
+
+
 // Check if a neighbor cell is alive (state == maxCellState)
 bool isAliveNeighbor(int3 neighborCoordinates, uint maxCellState)
 {
@@ -102,9 +108,15 @@ bool isAliveNeighbor(int3 neighborCoordinates, uint maxCellState)
 #endif
 }
 
-// Count alive neighbors for a cell using the shape's topology
-int countAliveNeighbors(int3 cellCoordinates, uint maxCellState)
+// Count alive neighbors for a cell.
+// For cube shapes: iterate face/edge/corner delta arrays at runtime based on the rule's
+// neighborhood flags (bits 60-63 of survivalAndNeighborhoodRules). This matches the search
+// shader (searchSimulation.slang). Without this, any neighborhood other than F/FE/FEC was
+// silently misclassified at SHAPE_TYPE selection time and rendered with wrong topology.
+// For non-cube shapes (ED): keep static SelectedShape iteration.
+int countAliveNeighbors(int3 cellCoordinates, uint maxCellState, uint neighborhoodFlags)
 {
+#if SHAPE_TYPE >= 3
     int neighborConfigurationIndex = SelectedShape.GetNeighborConfigurationIndex(cellCoordinates);
     int aliveCount = 0;
     for (int i = 0; i < SelectedShape.NeighborCount; i++)
@@ -113,18 +125,38 @@ int countAliveNeighbors(int3 cellCoordinates, uint maxCellState)
             aliveCount++;
     }
     return aliveCount;
+#else
+    int aliveCount = 0;
+    if ((neighborhoodFlags & FACE_NEIGHBORS_MASK_BIT) != 0u)
+    {
+        for (int i = 0; i < 6; i++)
+            if (isAliveNeighbor(cellCoordinates + kCubeFaceDeltas[i], maxCellState)) aliveCount++;
+    }
+    if ((neighborhoodFlags & EDGE_NEIGHBORS_MASK_BIT) != 0u)
+    {
+        for (int i = 0; i < 12; i++)
+            if (isAliveNeighbor(cellCoordinates + kCubeEdgeDeltas[i], maxCellState)) aliveCount++;
+    }
+    if ((neighborhoodFlags & CORNER_NEIGHBORS_MASK_BIT) != 0u)
+    {
+        for (int i = 0; i < 8; i++)
+            if (isAliveNeighbor(cellCoordinates + kCubeCornerDeltas[i], maxCellState)) aliveCount++;
+    }
+    return aliveCount;
+#endif
 }
 
 // Simulate a single cell: apply birth/survival rules, return new state
 uint simulateCell(int3 cellCoordinates, uint currentState,
-                               uint maxCellState, uint64_t survivalRules, uint64_t birthRules)
+                               uint maxCellState, uint64_t survivalRules, uint64_t birthRules,
+                               uint neighborhoodFlags)
 {
     int3 gridDimensions = int3(GRID_DIM_X, GRID_DIM_Y, GRID_DIM_Z);
 
     if (!SelectedShape.IsCellViable(uint3(cellCoordinates), uint3(gridDimensions)))
         return 0;
 
-    uint aliveNeighborCount = uint(countAliveNeighbors(cellCoordinates, maxCellState));
+    uint aliveNeighborCount = uint(countAliveNeighbors(cellCoordinates, maxCellState, neighborhoodFlags));
 
     if (currentState == maxCellState)
     {
@@ -219,6 +251,9 @@ void computeMain(uint3 globalID : SV_DispatchThreadID)
     uint maxCellState = uint(pushConstants.birthAndMaxCellStateRules >> BIT_SHIFT) + 1u;
     uint64_t survivalRules = pushConstants.survivalAndNeighborhoodRules & EXISTENCE_PERMUTATION_BIT_MASK;
     uint64_t birthRules = pushConstants.birthAndMaxCellStateRules & EXISTENCE_PERMUTATION_BIT_MASK;
+    // Neighborhood flags (F/E/C/W) are encoded in bits 60-63 of survivalAndNeighborhoodRules.
+    // Used by countAliveNeighbors for runtime cube neighborhood subset selection.
+    uint neighborhoodFlags = uint(pushConstants.survivalAndNeighborhoodRules >> BIT_SHIFT);
 
     // Read current packed byte
 #ifdef USE_IMAGE
@@ -230,8 +265,8 @@ void computeMain(uint3 globalID : SV_DispatchThreadID)
     uint currentStateB = (packed >> 4) & 0xF;
 
     // Simulate both cells
-    uint newStateA = simulateCell(cellA, currentStateA, maxCellState, survivalRules, birthRules);
-    uint newStateB = cellBValid ? simulateCell(cellB, currentStateB, maxCellState, survivalRules, birthRules) : 0;
+    uint newStateA = simulateCell(cellA, currentStateA, maxCellState, survivalRules, birthRules, neighborhoodFlags);
+    uint newStateB = cellBValid ? simulateCell(cellB, currentStateB, maxCellState, survivalRules, birthRules, neighborhoodFlags) : 0;
 
     // Pack and write
 #ifdef USE_IMAGE

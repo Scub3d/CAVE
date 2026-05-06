@@ -4,7 +4,7 @@
 
 import cellStateUtils;
 import cube;
-import elongatedDodecahedron;
+import elongatedRhombicDodecahedron;
 
 // Camera UBO — must match C++ Cave::CameraData layout exactly
 struct CameraUBO
@@ -76,9 +76,9 @@ typedef CubeFaceEdge SelectedShape;
 #elif SHAPE_TYPE == 2
 typedef CubeFaceEdgeCorner SelectedShape;
 #elif SHAPE_TYPE == 3
-typedef ElongatedDodecahedronFace SelectedShape;
+typedef ElongatedRhombicDodecahedronFace SelectedShape;
 #elif SHAPE_TYPE == 4
-typedef ElongatedDodecahedronFaceEdge SelectedShape;
+typedef ElongatedRhombicDodecahedronFaceEdge SelectedShape;
 #endif
 
 // Spatial reach defaults — C++ injects actual values based on neighbor deltas.

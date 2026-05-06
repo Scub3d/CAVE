@@ -6,8 +6,8 @@
 //
 // ERD specifics versus Cube:
 //   - Two neighbor configurations indexed by cellCoordinates.y % 2.
-//   - Face deltas: kFaceDeltas[configIndex][0..11]  (12 deltas per config, 2 configs).
-//   - Edge deltas: kEdgeDeltas[0..3]                (4 deltas, configuration-agnostic).
+//   - Face deltas: kErdFaceDeltas[configIndex][0..11]  (12 deltas per config, 2 configs).
+//   - Edge deltas: kErdEdgeDeltas[0..3]                (4 deltas, configuration-agnostic).
 //   - No corner deltas — the corner block is omitted entirely.
 //   - IsCellViable returns true.
 //
@@ -15,7 +15,7 @@
 //   GRID_X_SIZE, GRID_Y_SIZE, GRID_Z_SIZE
 //   MAX_RULE_BITS, WORKGROUP_SIZE
 
-import elongatedDodecahedron;
+import elongatedRhombicDodecahedron;
 
 static const uint CELLS_PER_UINT = 8u;
 static const uint CELL_STATE_MASK = 0xFu;
@@ -67,7 +67,7 @@ bool isAliveNeighbor(int3 neighborCoords, uint maxCellState, uint3 dims, bool wr
         if (neighborCoords.z < 0 || neighborCoords.z >= int(dims.z)) return false;
     }
 
-    if (!ElongatedDodecahedronFace::IsCellViable(uint3(neighborCoords), dims)) return false;
+    if (!ElongatedRhombicDodecahedronFace::IsCellViable(uint3(neighborCoords), dims)) return false;
 
     uint linearIndex = uint(neighborCoords.x)
                      + uint(neighborCoords.y) * dims.x
@@ -86,12 +86,12 @@ int countAliveNeighbors(int3 cellCoords, uint maxCellState, uint3 dims, bool wra
     if ((neighborhoodFlags & FACE_NEIGHBORS_MASK) != 0u)
     {
         for (int i = 0; i < 12; i++)
-            if (isAliveNeighbor(cellCoords + kFaceDeltas[configIndex][i], maxCellState, dims, wraps)) count++;
+            if (isAliveNeighbor(cellCoords + kErdFaceDeltas[configIndex][i], maxCellState, dims, wraps)) count++;
     }
     if ((neighborhoodFlags & EDGE_NEIGHBORS_MASK) != 0u)
     {
         for (int i = 0; i < 4; i++)
-            if (isAliveNeighbor(cellCoords + kEdgeDeltas[i], maxCellState, dims, wraps)) count++;
+            if (isAliveNeighbor(cellCoords + kErdEdgeDeltas[i], maxCellState, dims, wraps)) count++;
     }
     return count;
 }
@@ -149,7 +149,7 @@ void computeMain(uint3 globalId : SV_DispatchThreadID, uint3 localId : SV_GroupT
             uint yCoord = (cellIndex / dims.x) % dims.y;
             uint zCoord = (cellIndex / (dims.x * dims.y)) % dims.z;
 
-            if (!ElongatedDodecahedronFace::IsCellViable(uint3(xCoord, yCoord, zCoord), dims))
+            if (!ElongatedRhombicDodecahedronFace::IsCellViable(uint3(xCoord, yCoord, zCoord), dims))
             {
                 diedCount++;
                 continue;

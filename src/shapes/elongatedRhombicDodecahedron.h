@@ -5,10 +5,10 @@
 
 namespace Cave
 {
-	class ElongatedDodecahedron : public Shape
+	class ElongatedRhombicDodecahedron : public Shape
 	{
 	public:
-		ElongatedDodecahedron() : Shape("ElongatedDodecahedron", 0.1f)
+		ElongatedRhombicDodecahedron() : Shape("ElongatedRhombicDodecahedron", 0.1f)
 		{
 			// Face neighbors: 2 configurations (even-y, odd-y), 12 deltas each
 			_faceNeighborDeltaConfigurations = {
@@ -57,7 +57,7 @@ namespace Cave
 			_cornerNeighborDeltaConfigurations = { {}, {} };
 		}
 
-		static std::shared_ptr<Shape> Create() { return std::make_shared<ElongatedDodecahedron>(); }
+		static std::shared_ptr<Shape> Create() { return std::make_shared<ElongatedRhombicDodecahedron>(); }
 
 		glm::vec3 ComputeCenteringOffset(glm::ivec3 simulationDimensions) const override
 		{

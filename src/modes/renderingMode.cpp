@@ -12,7 +12,7 @@
 #include "../common/logger.h"
 #include "../camera.h"
 #include "../shapes/cube.h"
-#include "../shapes/elongatedDodecahedron.h"
+#include "../shapes/elongatedRhombicDodecahedron.h"
 
 #include <algorithm>
 #include <imgui.h>
@@ -359,7 +359,7 @@ namespace Cave
 		switch (guiState.shape)
 		{
 		case 0:  return Cube::Create();
-		case 1:  return ElongatedDodecahedron::Create();
+		case 1:  return ElongatedRhombicDodecahedron::Create();
 		default: return Cube::Create();
 		}
 	}

@@ -3,7 +3,7 @@
 import shape;
 
 // Face neighbor deltas: 2 configs x 12 deltas
-static const int3 kFaceDeltas[2][12] = {
+static const int3 kErdFaceDeltas[2][12] = {
     // Config 0: Even row (y % 2 == 0)
     {
         int3( 1,  0,  0), int3( 0,  1,  0), int3( 0,  0,  1),
@@ -21,7 +21,7 @@ static const int3 kFaceDeltas[2][12] = {
 };
 
 // Edge neighbor deltas: same for both configs
-static const int3 kEdgeDeltas[4] = {
+static const int3 kErdEdgeDeltas[4] = {
     int3( 1, 0,  1), int3( 1, 0, -1),
     int3(-1, 0,  1), int3(-1, 0, -1),
 };
@@ -107,7 +107,7 @@ bool edIsNearCellEdge(float3 localHitPoint, float edgeWidth)
 }
 
 // Face neighbors only (12 neighbors per config)
-struct ElongatedDodecahedronFace : IShape
+struct ElongatedRhombicDodecahedronFace : IShape
 {
     static const int NeighborCount = 12;
     static const int NeighborConfigurationCount = 2;
@@ -122,7 +122,7 @@ struct ElongatedDodecahedronFace : IShape
 
     static int3 GetNeighborDelta(int neighborConfigurationIndex, int neighborIndex)
     {
-        return kFaceDeltas[neighborConfigurationIndex][neighborIndex];
+        return kErdFaceDeltas[neighborConfigurationIndex][neighborIndex];
     }
 
     static bool IsCellViable(uint3 cellCoordinates, uint3 gridDimensions)
@@ -148,7 +148,7 @@ struct ElongatedDodecahedronFace : IShape
 }
 
 // Face + Edge neighbors (16 neighbors per config)
-struct ElongatedDodecahedronFaceEdge : IShape
+struct ElongatedRhombicDodecahedronFaceEdge : IShape
 {
     static const int NeighborCount = 16;
     static const int NeighborConfigurationCount = 2;
@@ -163,8 +163,8 @@ struct ElongatedDodecahedronFaceEdge : IShape
 
     static int3 GetNeighborDelta(int neighborConfigurationIndex, int neighborIndex)
     {
-        if (neighborIndex < 12) return kFaceDeltas[neighborConfigurationIndex][neighborIndex];
-        return kEdgeDeltas[neighborIndex - 12];
+        if (neighborIndex < 12) return kErdFaceDeltas[neighborConfigurationIndex][neighborIndex];
+        return kErdEdgeDeltas[neighborIndex - 12];
     }
 
     static bool IsCellViable(uint3 cellCoordinates, uint3 gridDimensions)

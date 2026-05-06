@@ -14,7 +14,7 @@
 // To add a third shape (call it `Foo`):
 //
 // 1. Implement the shape's neighbor topology in `shaders/slang/foo.slang`,
-//    following `cube.slang` / `elongatedDodecahedron.slang` as reference.
+//    following `cube.slang` / `elongatedRhombicDodecahedron.slang` as reference.
 //    Define module-scope `static const int3 kFaceDeltas[...]`,
 //    `static const int3 kEdgeDeltas[...]`, `static const int3 kCornerDeltas[...]`
 //    plus a `struct FooFace : IShape` (and FooFaceEdge / FooFaceEdgeCorner if

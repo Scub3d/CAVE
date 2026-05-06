@@ -624,14 +624,17 @@ namespace Cave
 			{"SHAPE_TYPE", [&]() -> std::string {
 				if (shapeName == "cube")
 				{
-					if (neighborCount == 6) return "0";       // CubeFace
-					if (neighborCount == 18) return "1";      // CubeFaceEdge
-					return "2";                                // CubeFaceEdgeCorner
+					// All cube variants now use a single shader. Topology (face/edge/corner
+					// subset) is selected at runtime inside countAliveNeighbors via the
+					// rule's neighborhood flag bits (60-63 of survivalAndNeighborhoodRules).
+					// SHAPE_TYPE=0 keeps the shape typedef pointing at CubeFace, but the
+					// simulation no longer depends on its topology.
+					return "0";
 				}
-				if (shapeName == "ElongatedDodecahedron")
+				if (shapeName == "ElongatedRhombicDodecahedron")
 				{
-					if (neighborCount == 12) return "3";      // ElongatedDodecahedronFace
-					return "4";                                // ElongatedDodecahedronFaceEdge
+					if (neighborCount == 12) return "3";      // ElongatedRhombicDodecahedronFace
+					return "4";                                // ElongatedRhombicDodecahedronFaceEdge
 				}
 				return "0";
 			}()},
@@ -706,7 +709,7 @@ namespace Cave
 			else if (shapeNeighborCount == 18) shapeTypeValue = "1";
 			else shapeTypeValue = "2";
 		}
-		else if (shapeName == "ElongatedDodecahedron")
+		else if (shapeName == "ElongatedRhombicDodecahedron")
 		{
 			shapeTypeValue = (shapeNeighborCount == 12) ? "3" : "4";
 		}

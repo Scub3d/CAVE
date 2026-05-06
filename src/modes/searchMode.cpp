@@ -11,7 +11,7 @@
 #include "../common/permutationMath.h"
 #include "../common/startupConfig.h"
 #include "../shapes/cube.h"
-#include "../shapes/elongatedDodecahedron.h"
+#include "../shapes/elongatedRhombicDodecahedron.h"
 
 #include <imgui.h>
 #include <chrono>
@@ -72,7 +72,7 @@ namespace Cave
 				std::shared_ptr<Shape> shape;
 				switch (guiState.searchShape)
 				{
-				case 1:  shape = ElongatedDodecahedron::Create(); break;
+				case 1:  shape = ElongatedRhombicDodecahedron::Create(); break;
 				default: shape = Cube::Create(); break;
 				}
 
@@ -665,7 +665,7 @@ namespace Cave
 			if (selectedNeighborTypes > 0)
 			{
 				std::shared_ptr<Shape> previewShape = (guiState.searchShape == 1)
-					? ElongatedDodecahedron::Create()
+					? ElongatedRhombicDodecahedron::Create()
 					: Cube::Create();
 				uint64_t totalPermutations = PermutationMath::SearchTotalPermutationCount(
 					*previewShape,

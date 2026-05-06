@@ -1,19 +1,21 @@
 // Cube shape implementations — Face, FaceEdge, and FaceEdgeCorner neighborhoods.
 import shape;
 
-// Module-level constant arrays for neighbor deltas
-static const int3 kFaceDeltas[6] = {
+// Module-level constant arrays for neighbor deltas. Names are shape-namespaced
+// to avoid collision with elongatedRhombicDodecahedron's deltas when both modules are
+// imported by a single shader (e.g. rayMarchCompute).
+static const int3 kCubeFaceDeltas[6] = {
     int3( 1, 0, 0), int3( 0, 1, 0), int3( 0, 0, 1),
     int3(-1, 0, 0), int3( 0,-1, 0), int3( 0, 0,-1)
 };
 
-static const int3 kEdgeDeltas[12] = {
+static const int3 kCubeEdgeDeltas[12] = {
     int3( 1, 1, 0), int3( 1,-1, 0), int3(-1, 1, 0), int3(-1,-1, 0),
     int3( 1, 0, 1), int3( 1, 0,-1), int3(-1, 0, 1), int3(-1, 0,-1),
     int3( 0, 1, 1), int3( 0, 1,-1), int3( 0,-1, 1), int3( 0,-1,-1)
 };
 
-static const int3 kCornerDeltas[8] = {
+static const int3 kCubeCornerDeltas[8] = {
     int3( 1, 1, 1), int3(-1, 1, 1), int3( 1,-1, 1), int3(-1,-1, 1),
     int3( 1, 1,-1), int3(-1, 1,-1), int3( 1,-1,-1), int3(-1,-1,-1)
 };
@@ -76,7 +78,7 @@ struct CubeFace : IShape
 
     static int3 GetNeighborDelta(int neighborConfigurationIndex, int neighborIndex)
     {
-        return kFaceDeltas[neighborIndex];
+        return kCubeFaceDeltas[neighborIndex];
     }
 
     static bool IsCellViable(uint3 cellCoordinates, uint3 gridDimensions)
@@ -114,8 +116,8 @@ struct CubeFaceEdge : IShape
 
     static int3 GetNeighborDelta(int neighborConfigurationIndex, int neighborIndex)
     {
-        if (neighborIndex < 6) return kFaceDeltas[neighborIndex];
-        return kEdgeDeltas[neighborIndex - 6];
+        if (neighborIndex < 6) return kCubeFaceDeltas[neighborIndex];
+        return kCubeEdgeDeltas[neighborIndex - 6];
     }
 
     static bool IsCellViable(uint3 cellCoordinates, uint3 gridDimensions)
@@ -153,9 +155,9 @@ struct CubeFaceEdgeCorner : IShape
 
     static int3 GetNeighborDelta(int neighborConfigurationIndex, int neighborIndex)
     {
-        if (neighborIndex < 6) return kFaceDeltas[neighborIndex];
-        if (neighborIndex < 18) return kEdgeDeltas[neighborIndex - 6];
-        return kCornerDeltas[neighborIndex - 18];
+        if (neighborIndex < 6) return kCubeFaceDeltas[neighborIndex];
+        if (neighborIndex < 18) return kCubeEdgeDeltas[neighborIndex - 6];
+        return kCubeCornerDeltas[neighborIndex - 18];
     }
 
     static bool IsCellViable(uint3 cellCoordinates, uint3 gridDimensions)

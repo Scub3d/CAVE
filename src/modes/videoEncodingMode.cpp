@@ -12,7 +12,7 @@
 #include "../common/logger.h"
 #include "../camera.h"
 #include "../shapes/cube.h"
-#include "../shapes/elongatedDodecahedron.h"
+#include "../shapes/elongatedRhombicDodecahedron.h"
 
 #include <algorithm>
 #include <imgui.h>
@@ -87,7 +87,7 @@ namespace Cave
 					const GuiState& gs = services.guiSystem.GetState();
 
 					std::shared_ptr<Shape> shape = (gs.shape == 1)
-						? ElongatedDodecahedron::Create() : Cube::Create();
+						? ElongatedRhombicDodecahedron::Create() : Cube::Create();
 
 					_simulationFuture = std::async(std::launch::async,
 						[gs, job, shape]()
@@ -445,7 +445,7 @@ namespace Cave
 					const GuiState& ngs = services.guiSystem.GetState();
 
 					std::shared_ptr<Shape> nextShape = (ngs.shape == 1)
-						? ElongatedDodecahedron::Create() : Cube::Create();
+						? ElongatedRhombicDodecahedron::Create() : Cube::Create();
 
 					_simulationContext.simulation = Simulation(
 						glm::uvec3(ngs.gridDimensionX, ngs.gridDimensionY, ngs.gridDimensionZ),

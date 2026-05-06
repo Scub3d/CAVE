@@ -93,17 +93,17 @@ int countAliveNeighbors(int3 cellCoords, uint maxCellState, uint3 dims, uint nei
     if ((neighborhoodFlags & FACE_NEIGHBORS_MASK) != 0u)
     {
         for (int i = 0; i < 6; i++)
-            if (isAliveNeighbor(cellCoords + kFaceDeltas[i], maxCellState, dims)) count++;
+            if (isAliveNeighbor(cellCoords + kCubeFaceDeltas[i], maxCellState, dims)) count++;
     }
     if ((neighborhoodFlags & EDGE_NEIGHBORS_MASK) != 0u)
     {
         for (int i = 0; i < 12; i++)
-            if (isAliveNeighbor(cellCoords + kEdgeDeltas[i], maxCellState, dims)) count++;
+            if (isAliveNeighbor(cellCoords + kCubeEdgeDeltas[i], maxCellState, dims)) count++;
     }
     if ((neighborhoodFlags & CORNER_NEIGHBORS_MASK) != 0u)
     {
         for (int i = 0; i < 8; i++)
-            if (isAliveNeighbor(cellCoords + kCornerDeltas[i], maxCellState, dims)) count++;
+            if (isAliveNeighbor(cellCoords + kCubeCornerDeltas[i], maxCellState, dims)) count++;
     }
     return count;
 }
