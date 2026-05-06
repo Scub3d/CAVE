@@ -415,19 +415,26 @@ namespace Cave
 				outputFile.close();
 				LOG_INFO("Raw H.264 written to {} ({} bytes)", outputPath, _videoAccumulatedBitstream.size());
 
-				std::string mp4Path = outputFolder + filename + ".mp4";
-				std::string ffmpegCommand = "ffmpeg -y -framerate " + std::to_string(outState.videoFps) +
-					" -i \"" + outputPath + "\" -c copy \"" + mp4Path + "\" 2>&1";
-				LOG_INFO("Remuxing to MP4: {}", ffmpegCommand);
-				int ffmpegResult = system(ffmpegCommand.c_str());
-				if (ffmpegResult == 0)
+				if (outState.videoKeepH264Only)
 				{
-					LOG_INFO("MP4 written to {}", mp4Path);
-					std::filesystem::remove(outputPath);
+					LOG_INFO("Skipping ffmpeg remux (--keep-h264-only). Raw H.264 kept at {}", outputPath);
 				}
 				else
 				{
-					LOG_WARNING("ffmpeg remux failed (exit code {}). Raw .h264 file kept.", ffmpegResult);
+					std::string mp4Path = outputFolder + filename + ".mp4";
+					std::string ffmpegCommand = "ffmpeg -y -framerate " + std::to_string(outState.videoFps) +
+						" -i \"" + outputPath + "\" -c copy \"" + mp4Path + "\" 2>&1";
+					LOG_INFO("Remuxing to MP4: {}", ffmpegCommand);
+					int ffmpegResult = system(ffmpegCommand.c_str());
+					if (ffmpegResult == 0)
+					{
+						LOG_INFO("MP4 written to {}", mp4Path);
+						std::filesystem::remove(outputPath);
+					}
+					else
+					{
+						LOG_WARNING("ffmpeg remux failed (exit code {}). Raw .h264 file kept.", ffmpegResult);
+					}
 				}
 
 				// Advance to next job

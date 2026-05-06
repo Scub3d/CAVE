@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan.hpp>
 
+#include <map>
 #include <memory>
 #include <vector>
 #include <sstream>
@@ -64,6 +65,14 @@ namespace Cave
 		vk::ShaderModule _rayMarchComputeShaderModule;
 		vk::ShaderModule _rayMarchVertexShaderModule;
 		vk::ShaderModule _rayMarchFragmentShaderModule;
+
+		// Per-shader define-cache: stores all distinct shader modules built across the
+		// renderer's lifetime keyed on serialized defines. Across a batch video encode the
+		// SHAPE_TYPE may differ between F/E/FE/FEC permutations; caching all variants instead
+		// of only the last one gives full hit rate after the first pass through each subset.
+		std::map<std::string, vk::ShaderModule> _computeShaderCache;
+		std::map<std::string, vk::ShaderModule> _fragmentShaderCache;
+		bool _vertexShaderCompiled = false;
 
 		std::string _rayMarchComputeShaderCode;
 

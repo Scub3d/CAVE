@@ -163,6 +163,7 @@ namespace Cave
 		int videoFps = 30;
 		int videoDurationTicks = 300;
 		std::string videoOutputFolderPath = "data/videos/";
+		bool videoKeepH264Only = false;  // skip ffmpeg remux when true
 		float videoEncodingProgress = 0.0f;
 		uint32_t videoCurrentFrame = 0;
 		uint32_t videoTotalFrames = 0;

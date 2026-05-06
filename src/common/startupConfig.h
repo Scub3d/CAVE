@@ -77,6 +77,7 @@ namespace Cave
 		int videoFps = 30;
 		int videoDurationTicks = 300;
 		std::string videoOutputFolder = "data/videos/";
+		bool keepH264Only = false;  // skip ffmpeg remux; keep raw .h264 (~50ms saved per video)
 
 		// Camera params
 		float orbitSpeed = -1.0f;      // -1 = use default

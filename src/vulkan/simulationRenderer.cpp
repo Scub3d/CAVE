@@ -647,6 +647,17 @@ namespace Cave
 		if (_storageMode == CellStateStorageMode::Image)
 			defines["USE_IMAGE"] = "1";
 
+		// Define-cache: skip recompile if the same defines already produced a module.
+		// std::map iterates in key order, so concatenated key/value pairs are deterministic.
+		std::string definesKey;
+		for (const auto& [k, v] : defines) definesKey += k + "=" + v + ";";
+		auto cacheIt = _computeShaderCache.find(definesKey);
+		if (cacheIt != _computeShaderCache.end())
+		{
+			_rayMarchComputeShaderModule = cacheIt->second;
+			return;
+		}
+
 		_rayMarchComputeShaderModule = _slangCompiler->Compile(
 			_deviceContext, "shaders/slang", "rayMarchCompute", "computeMain", defines);
 
@@ -656,6 +667,7 @@ namespace Cave
 		}
 		else
 		{
+			_computeShaderCache[definesKey] = _rayMarchComputeShaderModule;
 			LOG_INFO("Ray march compute shader compiled via Slang (shape: {}, storage: {})",
 				shapeName, _storageMode == CellStateStorageMode::Image ? "image" : "buffer");
 		}
@@ -664,12 +676,16 @@ namespace Cave
 
 	void VulkanSimulationRenderer::GenerateRayMarchVertexShader()
 	{
-		// VALIDATION: Slang path under test
+		// Vertex shader has no defines — compile once per renderer instance.
+		if (_vertexShaderCompiled && _rayMarchVertexShaderModule)
+			return;
+
 		_rayMarchVertexShaderModule = _slangCompiler->Compile(
 			_deviceContext, "shaders/slang", "rayMarchVertex", "vertexMain");
 
 		if (_rayMarchVertexShaderModule)
 		{
+			_vertexShaderCompiled = true;
 			LOG_INFO("Ray march vertex shader compiled via Slang");
 		}
 		else
@@ -729,11 +745,22 @@ namespace Cave
 			slangDefines["ENCODE_DEPTH_IN_ALPHA"] = "1";
 		}
 
+		// Define-cache: skip recompile if the same defines already produced a module.
+		std::string definesKey;
+		for (const auto& [k, v] : slangDefines) definesKey += k + "=" + v + ";";
+		auto cacheIt = _fragmentShaderCache.find(definesKey);
+		if (cacheIt != _fragmentShaderCache.end())
+		{
+			_rayMarchFragmentShaderModule = cacheIt->second;
+			return;
+		}
+
 		_rayMarchFragmentShaderModule = _slangCompiler->Compile(
 			_deviceContext, "shaders/slang", "rayMarchFragment", "fragmentMain", slangDefines);
 
 		if (_rayMarchFragmentShaderModule)
 		{
+			_fragmentShaderCache[definesKey] = _rayMarchFragmentShaderModule;
 			LOG_INFO("Ray march fragment shader compiled via Slang");
 		}
 		else

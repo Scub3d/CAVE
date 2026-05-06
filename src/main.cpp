@@ -50,6 +50,7 @@ int main(int argc, char **argv)
         ("fps", "Video FPS", cxxopts::value<int>()->default_value("30"))
         ("duration", "Video duration in ticks", cxxopts::value<int>()->default_value("300"))
         ("output", "Output folder", cxxopts::value<std::string>()->default_value(""))
+        ("keep-h264-only", "Skip ffmpeg .h264->.mp4 remux; keep raw .h264 (~50ms saved per video)", cxxopts::value<bool>()->default_value("false"))
         ("orbit-speed", "Camera orbit angular velocity (radians/tick)", cxxopts::value<float>()->default_value("-1"))
         ("orbit-angle", "Fix camera orbit angle (radians). When set, orbit-speed defaults to 0.", cxxopts::value<float>()->default_value("1e30"))
         ("orbit-elevation", "Fix camera orbit elevation (radians).", cxxopts::value<float>()->default_value("1e30"))
@@ -200,6 +201,7 @@ int main(int argc, char **argv)
         config.videoHeight = result["height"].as<int>();
         config.videoFps = result["fps"].as<int>();
         config.videoDurationTicks = result["duration"].as<int>();
+        config.keepH264Only = result["keep-h264-only"].as<bool>();
         config.orbitSpeed = result["orbit-speed"].as<float>();
         config.orbitAngle = result["orbit-angle"].as<float>();
         config.orbitElevation = result["orbit-elevation"].as<float>();
