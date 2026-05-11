@@ -130,7 +130,17 @@ namespace Cave
 		// VRAM reduction on top of the uvec4 → uint migration (32× vs the original).
 		// Each compute thread owns one uint (= 8 cells) so there are no read-modify-write
 		// races between threads on shared bytes.
-		uint32_t packedUintCount = (_totalCellCount + 7u) / 8u;
+		// Layout depends on shader: cube uses 3D-tiled (uintsPerRow × gridY × gridZ uints
+		// with end-of-row padding when gridX isn't a multiple of 8) to match
+		// searchSimulation.slang's `uintIdx = uintX + uintY * UINTS_PER_ROW + uintZ
+		// * UINTS_PER_ROW * GRID_Y_SIZE`. ERD uses linear (cellIndex / 8) per
+		// searchSimulationERD.slang. Mixing the two corrupts neighbor reads on grids
+		// whose X dim isn't a multiple of 8 — caused rules to die spuriously fast at
+		// e.g. grid=49 (uintsPerRow=7 gives 7-cell padding per row).
+		uint32_t uintsPerRow = (_chunkConfig.gridDimensionX + 7u) / 8u;
+		uint32_t packedUintCount = _simulationUses3DDispatch
+			? uintsPerRow * _chunkConfig.gridDimensionY * _chunkConfig.gridDimensionZ
+			: (_totalCellCount + 7u) / 8u;
 		vk::DeviceSize cellBufferSize = sizeof(uint32_t) * packedUintCount;
 		glm::uvec3 gridDimensions(_chunkConfig.gridDimensionX, _chunkConfig.gridDimensionY, _chunkConfig.gridDimensionZ);
 		glm::uvec3 spawnDimensions(_chunkConfig.spawnAreaDimensionX, _chunkConfig.spawnAreaDimensionY, _chunkConfig.spawnAreaDimensionZ);
@@ -257,8 +267,6 @@ namespace Cave
 				{
 					for (uint32_t z = 0; z < gridDimensions.z; z++)
 					{
-						uint32_t cellIndex = x + (y * gridDimensions.x) + (z * gridDimensions.x * gridDimensions.y);
-
 						bool inSpawnArea =
 							x >= (gridDimensions.x - effectiveSpawnDimensions.x) / 2 && x < (gridDimensions.x + effectiveSpawnDimensions.x) / 2 &&
 							y >= (gridDimensions.y - effectiveSpawnDimensions.y) / 2 && y < (gridDimensions.y + effectiveSpawnDimensions.y) / 2 &&
@@ -271,8 +279,26 @@ namespace Cave
 							: true;
 						if (alive)
 						{
-							uint32_t uintIndex = cellIndex / 8u;
-							uint32_t nibble    = cellIndex % 8u;
+							// Layout must match the active shader's cell-buffer addressing.
+							// cube (searchSimulation.slang): 3D-tiled —
+							//   uintIdx = uintX + uintY * uintsPerRow + uintZ * uintsPerRow * gridY,
+							//   with row padding when gridX isn't a multiple of 8.
+							// ERD (searchSimulationERD.slang): linear —
+							//   cellIndex = x + y*gridX + z*gridX*gridY, then divide by 8.
+							uint32_t uintIndex;
+							uint32_t nibble;
+							if (_simulationUses3DDispatch)
+							{
+								uint32_t uintX = x / 8u;
+								nibble = x % 8u;
+								uintIndex = uintX + y * uintsPerRow + z * uintsPerRow * gridDimensions.y;
+							}
+							else
+							{
+								uint32_t cellIndex = x + (y * gridDimensions.x) + (z * gridDimensions.x * gridDimensions.y);
+								uintIndex = cellIndex / 8u;
+								nibble    = cellIndex % 8u;
+							}
 							initialCellData[uintIndex] |= (maxCellState & 0xFu) << (nibble * 4u);
 						}
 					}
@@ -460,8 +486,12 @@ namespace Cave
 		vk::CommandBufferBeginInfo beginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 		_commandBuffer.begin(beginInfo);
 
-		// 8 cells packed per uint32_t; buffer size = (totalCells + 7) / 8 uints.
-		vk::DeviceSize cellBufferSizeForReset = sizeof(uint32_t) * ((_totalCellCount + 7u) / 8u);
+		// 8 cells packed per uint32_t. Layout matches BuildBuffers (3D-tiled for cube,
+		// linear for ERD). See the comment block in BuildBuffers for details.
+		uint32_t resetUintsPerRow = (_chunkConfig.gridDimensionX + 7u) / 8u;
+		vk::DeviceSize cellBufferSizeForReset = _simulationUses3DDispatch
+			? sizeof(uint32_t) * resetUintsPerRow * _chunkConfig.gridDimensionY * _chunkConfig.gridDimensionZ
+			: sizeof(uint32_t) * ((_totalCellCount + 7u) / 8u);
 
 		// Phase 0: reset cell data for grids that completed a permutation.
 		// The manager shader advances the permutation and resets GridInfo but can't
@@ -570,7 +600,11 @@ namespace Cave
 		// reads the updated cell state (without this, the simulation always
 		// re-reads the initial data — no actual cell state progression).
 		if (queryManager) queryManager->WriteTimestamp(_commandBuffer, queryPool, vk::PipelineStageFlagBits::eTopOfPipe, "searchCopy_start");
-		vk::DeviceSize cellBufferSize = sizeof(uint32_t) * ((_totalCellCount + 7u) / 8u);
+		// Match BuildBuffers layout (3D-tiled for cube, linear for ERD).
+		uint32_t copyUintsPerRow = (_chunkConfig.gridDimensionX + 7u) / 8u;
+		vk::DeviceSize cellBufferSize = _simulationUses3DDispatch
+			? sizeof(uint32_t) * copyUintsPerRow * _chunkConfig.gridDimensionY * _chunkConfig.gridDimensionZ
+			: sizeof(uint32_t) * ((_totalCellCount + 7u) / 8u);
 		for (uint32_t gridIndex = 0; gridIndex < _gridCount; gridIndex++)
 		{
 			vk::BufferCopy copyRegion{};

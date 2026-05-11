@@ -481,14 +481,17 @@ namespace Cave
 		// buffer descriptors, so p=512 split across two GPUs (256 chunks per GPU)
 		// needs ~2K sets and ~13K storage buffers per GPU. Headroom on top covers
 		// rendering / video / GUI consumers.
+		// Increased to 65536 sets / 262144 buffers to accommodate searches with full
+		// FECW neighborhoods (7 subsets × multiple maxCS × wrap = 70+ configs); the
+		// previous 16K cap overflowed at FECW K=2 ticks=100 CS=2-6.
 		std::vector<vk::DescriptorPoolSize> poolSizes = {
 			{vk::DescriptorType::eUniformBuffer, static_cast<uint32_t>(framesInFlight * 10)},
-			{vk::DescriptorType::eStorageBuffer, 65536},
+			{vk::DescriptorType::eStorageBuffer, 262144},
 			{vk::DescriptorType::eStorageImage, static_cast<uint32_t>(framesInFlight * 32)}};
 
 		vk::DescriptorPoolCreateInfo descriptorPoolInfo = vk::DescriptorPoolCreateInfo(
 			vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet, // flags
-			16384,												  // maxSets
+			65536,												  // maxSets
 			static_cast<uint32_t>(poolSizes.size()),			  // poolSizeCount
 			poolSizes.data()									  // pPoolSizes
 		);

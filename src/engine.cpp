@@ -163,6 +163,7 @@ namespace Cave
 				gs.videoFps = _startupConfig->videoFps;
 				gs.videoDurationTicks = _startupConfig->videoDurationTicks;
 				gs.videoKeepH264Only = _startupConfig->keepH264Only;
+				gs.videoEncoderStreamFlush = _startupConfig->encoderStreamFlush;
 				if (_startupConfig->orbitSpeed >= 0.0f)
 					gs.orbitAngularVelocity = _startupConfig->orbitSpeed;
 				if (!_startupConfig->videoOutputFolder.empty())

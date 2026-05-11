@@ -1,7 +1,9 @@
 #pragma once
 
 #include <vulkan/vulkan.hpp>
+#include <fstream>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -55,6 +57,15 @@ namespace Cave
 
 		// Encode pipeline
 		std::unique_ptr<VideoEncoder> _videoEncoder;
+
+		// Bitstream sink. When streaming is on, NALs are written straight to _bitstreamFile
+		// per frame and _accumulatedBitstream stays empty. When streaming is off (legacy
+		// path, retained for A/B benchmarking), every NAL is appended to _accumulatedBitstream
+		// and the caller drains it via Finish().
+		bool _bitstreamStreamingEnabled = false;
+		std::ofstream _bitstreamFile;
+		std::string _bitstreamFilePath;
+		size_t _bitstreamBytesWritten = 0;
 		std::vector<char> _accumulatedBitstream;
 
 		// Metadata overlay drawn into the encoder's color attachment each frame.
@@ -74,6 +85,10 @@ namespace Cave
 
 		void UpdateCameraBuffer(uint32_t frameIndex, const CameraData& cameraData);
 
+		// Routes one NAL/header chunk produced by VideoEncoder::FinishEncode either to the
+		// open bitstream file (streaming) or to _accumulatedBitstream (legacy).
+		void WriteBitstreamChunk(const char* data, size_t size);
+
 	public:
 		VideoEncoderSystem(VulkanInstance& vulkanInstance, DeviceContext& deviceContext,
 		                   VulkanSimulationRenderer& simulationRenderer,
@@ -86,6 +101,13 @@ namespace Cave
 		// Resets for a new encoding job: rebuilds graphics pipeline with updated shaders
 		// and creates a fresh H.264 encoder session. Reuses color/depth attachments and camera buffers.
 		void ResetForNewJob();
+
+		// Configures the bitstream sink for the next job. Call once before the first
+		// encode of every job (including the first job, where ResetForNewJob is not
+		// invoked). When streaming is true the H.264 file is opened here and each NAL
+		// is written as it's produced. When streaming is false the legacy in-RAM path
+		// is used and outputPath is recorded for diagnostic logging only.
+		void OpenBitstreamForJob(const std::string& outputPath, bool streaming);
 
 		// Renders the current simulation state internally, then queues it for encoding.
 		// Should be called after ComputeSystem::Tick() for the same frameIndex.
@@ -100,8 +122,20 @@ namespace Cave
 		// when rendering is handled externally.
 		void BlitAndEncodeFrame(uint32_t frameIndex, vk::Image sourceImage, vk::Extent2D sourceExtent);
 
-		// Blocks until all queued frames are encoded and writes the H.264 bitstream.
+		// Blocks until all queued frames are encoded and finalizes the bitstream sink.
+		// When streaming is enabled, closes _bitstreamFile and leaves outBitstream empty;
+		// the caller should treat the on-disk file at the path passed to OpenBitstreamForJob
+		// as the finished output. When streaming is disabled, moves the accumulated buffer
+		// into outBitstream (legacy behavior).
 		void Finish(std::vector<char>& outBitstream);
+
+		// True if Finish() already wrote the bitstream to disk via streaming; the caller
+		// should skip the legacy "open ofstream + write whole vector" step in that case.
+		bool DidStreamBitstreamToDisk() const { return _bitstreamStreamingEnabled; }
+
+		// Bytes written to _bitstreamFile during the most recent streamed job. Used for
+		// logging at job end (and lets the mode print the same size line either path).
+		size_t GetStreamedByteCount() const { return _bitstreamBytesWritten; }
 
 		// Update overlay metadata (call before each RenderAndEncodeFrame/BlitAndEncodeFrame
 		// to refresh per-tick fields like currentTick). Has no effect if overlay is disabled.

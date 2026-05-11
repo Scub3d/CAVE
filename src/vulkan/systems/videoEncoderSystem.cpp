@@ -392,13 +392,11 @@ namespace Cave
 
         // First frame: collect the H.264 header
         _videoEncoder->FinishEncode(bitstreamData, bitstreamSize);
-        if (bitstreamSize > 0)
-            _accumulatedBitstream.insert(_accumulatedBitstream.end(), bitstreamData, bitstreamData + bitstreamSize);
+        WriteBitstreamChunk(bitstreamData, bitstreamSize);
 
         // Collect the frame's encoded packet
         _videoEncoder->FinishEncode(bitstreamData, bitstreamSize);
-        if (bitstreamSize > 0)
-            _accumulatedBitstream.insert(_accumulatedBitstream.end(), bitstreamData, bitstreamData + bitstreamSize);
+        WriteBitstreamChunk(bitstreamData, bitstreamSize);
     }
 
     void VideoEncoderSystem::BlitAndEncodeFrame(uint32_t frameIndex, vk::Image sourceImage, vk::Extent2D sourceExtent)
@@ -574,12 +572,47 @@ namespace Cave
         size_t bitstreamSize = 0;
 
         _videoEncoder->FinishEncode(bitstreamData, bitstreamSize);
-        if (bitstreamSize > 0)
-            _accumulatedBitstream.insert(_accumulatedBitstream.end(), bitstreamData, bitstreamData + bitstreamSize);
+        WriteBitstreamChunk(bitstreamData, bitstreamSize);
 
         _videoEncoder->FinishEncode(bitstreamData, bitstreamSize);
-        if (bitstreamSize > 0)
-            _accumulatedBitstream.insert(_accumulatedBitstream.end(), bitstreamData, bitstreamData + bitstreamSize);
+        WriteBitstreamChunk(bitstreamData, bitstreamSize);
+    }
+
+    void VideoEncoderSystem::WriteBitstreamChunk(const char* data, size_t size)
+    {
+        if (size == 0)
+            return;
+        if (_bitstreamStreamingEnabled)
+        {
+            _bitstreamFile.write(data, static_cast<std::streamsize>(size));
+            _bitstreamBytesWritten += size;
+        }
+        else
+        {
+            _accumulatedBitstream.insert(_accumulatedBitstream.end(), data, data + size);
+        }
+    }
+
+    void VideoEncoderSystem::OpenBitstreamForJob(const std::string& outputPath, bool streaming)
+    {
+        // Defensive: if a prior job's file is still open (e.g. caller skipped Finish), close it.
+        if (_bitstreamFile.is_open())
+            _bitstreamFile.close();
+
+        _bitstreamFilePath = outputPath;
+        _bitstreamStreamingEnabled = streaming;
+        _bitstreamBytesWritten = 0;
+        _accumulatedBitstream.clear();
+
+        if (!streaming)
+            return;
+
+        _bitstreamFile.open(outputPath, std::ios::binary | std::ios::trunc);
+        if (!_bitstreamFile.is_open())
+        {
+            LOG_ERROR("VideoEncoderSystem::OpenBitstreamForJob: failed to open {} for streaming. Falling back to in-RAM accumulation.", outputPath);
+            _bitstreamStreamingEnabled = false;
+        }
     }
 
     void VideoEncoderSystem::ResetForNewJob()
@@ -606,11 +639,25 @@ namespace Cave
         _videoEncoder.reset();
         _videoEncoder = std::make_unique<VideoEncoder>(_deviceContext, inputImages, inputImageViews, _width, _height, _fps);
 
-        _accumulatedBitstream.clear();
+        // _accumulatedBitstream / _bitstreamFile are owned by OpenBitstreamForJob's
+        // lifecycle (called by the mode immediately after ResetForNewJob). Don't touch
+        // them here — clearing would race the path setup the mode is about to do.
     }
 
     void VideoEncoderSystem::Finish(std::vector<char> &outBitstream)
     {
-        outBitstream = std::move(_accumulatedBitstream);
+        if (_bitstreamStreamingEnabled)
+        {
+            if (_bitstreamFile.is_open())
+            {
+                _bitstreamFile.flush();
+                _bitstreamFile.close();
+            }
+            outBitstream.clear();
+        }
+        else
+        {
+            outBitstream = std::move(_accumulatedBitstream);
+        }
     }
 }

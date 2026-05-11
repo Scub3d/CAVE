@@ -51,9 +51,9 @@ namespace Cave
 		if (guiState.gridDimensionX < 64) guiState.gridDimensionX = 128;
 		if (guiState.gridDimensionY < 64) guiState.gridDimensionY = 128;
 		if (guiState.gridDimensionZ < 64) guiState.gridDimensionZ = 128;
-		if (guiState.spawnDimensionX < 1) guiState.spawnDimensionX = 25;
-		if (guiState.spawnDimensionY < 1) guiState.spawnDimensionY = 25;
-		if (guiState.spawnDimensionZ < 1) guiState.spawnDimensionZ = 25;
+		if (guiState.spawnDimensionX < 1) guiState.spawnDimensionX = 11;
+		if (guiState.spawnDimensionY < 1) guiState.spawnDimensionY = 11;
+		if (guiState.spawnDimensionZ < 1) guiState.spawnDimensionZ = 11;
 
 		// CA rules — Conway-class 4-survives, 1/4-6 birth (matches RenderingMode default).
 		guiState.birthRulesText = "1,4-6";

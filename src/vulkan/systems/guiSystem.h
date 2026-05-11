@@ -37,9 +37,9 @@ namespace Cave
 		int gridDimensionY = 225;
 		int gridDimensionZ = 225;
 		bool uniformGridDimensions = true;
-		int spawnDimensionX = 25;
-		int spawnDimensionY = 25;
-		int spawnDimensionZ = 25;
+		int spawnDimensionX = 11;
+		int spawnDimensionY = 11;
+		int spawnDimensionZ = 11;
 		int spawnMode = 1; // 0 = random, 1 = filled
 		float spawnRandomDensity = 0.5f; // [0,1] probability per cell when spawnMode == 0
 
@@ -88,12 +88,12 @@ namespace Cave
 		int searchGridDimensionX = 49;
 		int searchGridDimensionY = 49;
 		int searchGridDimensionZ = 49;
-		int searchSpawnDimensionX = 25;
-		int searchSpawnDimensionY = 25;
-		int searchSpawnDimensionZ = 25;
+		int searchSpawnDimensionX = 11;
+		int searchSpawnDimensionY = 11;
+		int searchSpawnDimensionZ = 11;
 		int searchSpawnMode = 1; // 0 = random, 1 = filled
 		float searchSpawnRandomDensity = 0.5f; // [0,1], used when searchSpawnMode == 0
-		int searchMaxTicksToSurvive = 100;
+		int searchMaxTicksToSurvive = 50;
 		std::string searchOutputFolderPath = "data/search/";
 
 		// Sweep axes — each dimension that is enabled multiplies the total chunk count.
@@ -164,6 +164,7 @@ namespace Cave
 		int videoDurationTicks = 300;
 		std::string videoOutputFolderPath = "data/videos/";
 		bool videoKeepH264Only = false;  // skip ffmpeg remux when true
+		bool videoEncoderStreamFlush = true;  // stream NAL units to disk vs accumulate-then-write
 		float videoEncodingProgress = 0.0f;
 		uint32_t videoCurrentFrame = 0;
 		uint32_t videoTotalFrames = 0;

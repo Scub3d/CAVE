@@ -53,12 +53,23 @@ namespace Cave
 		std::vector<VideoEncodingJob> _videoBatchQueue;
 		uint32_t _videoCurrentJobIndex = 0;
 
+		// Resolved .h264 path for the job currently being encoded. Built at job start
+		// (before the encoder opens it for streaming) and reused at job end for ffmpeg
+		// remux. Avoids re-deriving the filename from job params in two places.
+		std::string _videoCurrentOutputPath;
+
 		bool _sessionRunning = false;
 		bool _enableComputeSkip = true;
 		uint32_t _currentFrameIndex = 0;
 
 		void RetrieveTimestamps(ModeServices& services);
 		void BuildGui(ModeServices& services);
+
+		// Resolves the .h264 output path for a job from its simulation params and the
+		// active GuiState's output folder. Ensures the folder exists. Used by both the
+		// first-job setup and per-job advance paths so the encoder can stream directly
+		// to disk and the post-encode ffmpeg step can find the file.
+		std::string BuildVideoOutputPath(const VideoEncodingJob& job, const GuiState& guiState);
 
 		// Builds the OverlayInfo to bake into encoded frames from the active simulation
 		// + GuiState. Called once per encoded tick before invoking the encoder. Non-const

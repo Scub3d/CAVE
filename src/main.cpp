@@ -31,10 +31,10 @@ int main(int argc, char **argv)
         ("max-cs-range", "Max max cell state (search)", cxxopts::value<int>()->default_value("10"))
         ("neighborhood", "Neighborhood types: F, E, C, W (e.g., \"FE\")", cxxopts::value<std::string>()->default_value("F"))
         ("grid", "Grid size (uniform X=Y=Z)", cxxopts::value<int>()->default_value("49"))
-        ("spawn", "Spawn size (uniform X=Y=Z)", cxxopts::value<int>()->default_value("25"))
+        ("spawn", "Spawn size (uniform X=Y=Z)", cxxopts::value<int>()->default_value("11"))
         ("spawn-mode", "Spawn fill: random or filled", cxxopts::value<std::string>()->default_value("filled"))
         ("spawn-density", "Fill density for random spawn [0,1]", cxxopts::value<float>()->default_value("0.5"))
-        ("ticks", "Max ticks to survive (search/video)", cxxopts::value<int>()->default_value("100"))
+        ("ticks", "Max ticks to survive (search/video)", cxxopts::value<int>()->default_value("50"))
         ("grid-sweep", "Grid-size sweep min:max:step for search mode (e.g. 30:60:10)", cxxopts::value<std::string>()->default_value(""))
         ("density-sweep", "Spawn-density sweep min:max:step in [0,1] (e.g. 0.25:1:0.25)", cxxopts::value<std::string>()->default_value(""))
         ("seed-runs", "Number of distinct per-cell random seeds per chunk (search mode)", cxxopts::value<int>()->default_value("1"))
@@ -51,6 +51,7 @@ int main(int argc, char **argv)
         ("duration", "Video duration in ticks", cxxopts::value<int>()->default_value("300"))
         ("output", "Output folder", cxxopts::value<std::string>()->default_value(""))
         ("keep-h264-only", "Skip ffmpeg .h264->.mp4 remux; keep raw .h264 (~50ms saved per video)", cxxopts::value<bool>()->default_value("false"))
+        ("encoder-stream-flush", "Stream H.264 NAL units to disk as encoded (bounded RAM, partial output on crash). Set =false for the legacy accumulate-in-RAM path.", cxxopts::value<bool>()->default_value("true"))
         ("orbit-speed", "Camera orbit angular velocity (radians/tick)", cxxopts::value<float>()->default_value("-1"))
         ("orbit-angle", "Fix camera orbit angle (radians). When set, orbit-speed defaults to 0.", cxxopts::value<float>()->default_value("1e30"))
         ("orbit-elevation", "Fix camera orbit elevation (radians).", cxxopts::value<float>()->default_value("1e30"))
@@ -202,6 +203,7 @@ int main(int argc, char **argv)
         config.videoFps = result["fps"].as<int>();
         config.videoDurationTicks = result["duration"].as<int>();
         config.keepH264Only = result["keep-h264-only"].as<bool>();
+        config.encoderStreamFlush = result["encoder-stream-flush"].as<bool>();
         config.orbitSpeed = result["orbit-speed"].as<float>();
         config.orbitAngle = result["orbit-angle"].as<float>();
         config.orbitElevation = result["orbit-elevation"].as<float>();

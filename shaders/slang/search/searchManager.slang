@@ -118,7 +118,14 @@ void computeMain(uint3 threadId : SV_DispatchThreadID)
     info.finalAliveCount                 = snapshot.numberOfSurvivingCells;
     info.maxAliveCount                   = max(info.maxAliveCount, snapshot.numberOfSurvivingCells);
 
-    if (snapshot.numberOfDeadCells == TOTAL_NUMBER_OF_CELLS)
+    // Early-death detection: a rule is doomed once no cells reach `maxCellState`
+    // (survivedCount==0) AND no new cells were born (bornCount==0) on a single tick.
+    // From that tick onward, all surviving cells just decay through 1..maxCS-1 to 0
+    // — no future ticks can produce alive neighbors, so no future births. The original
+    // check (numberOfDeadCells == TOTAL_NUMBER_OF_CELLS) only fired after the full
+    // decay tail completed (`maxCellState` extra ticks of bookkeeping), which let
+    // rules in their decay tail reach MAX_TICKS and get misclassified as VIABLE.
+    if (snapshot.numberOfSurvivingCells == 0u && snapshot.numberOfCellsBorn == 0u)
     {
         info.status = 1;
     }

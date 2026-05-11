@@ -72,7 +72,7 @@ void SearchShaderGenerator::GenerateSimulationShader(Shape &shape, uint32_t grid
 	if (shape.GetName() == "cube")
 	{
 		_shaderModule = _slangCompiler.Compile(
-			_deviceContext, "shaders/slang", "searchSimulation", "computeMain", defines);
+			_deviceContext, "shaders/slang", "searchSimulationCube", "computeMain", defines);
 		LOG_DEBUG("Search simulation compute shader generated via Slang (cube)");
 		return;
 	}

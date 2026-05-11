@@ -27,6 +27,17 @@ namespace Cave
 
 	VideoEncodingMode::~VideoEncodingMode() = default;
 
+	std::string VideoEncodingMode::BuildVideoOutputPath(const VideoEncodingJob& job, const GuiState& guiState)
+	{
+		std::string filename = std::to_string(job.params.shapeAndGridConfiguration) + "-" +
+			std::to_string(job.params.survivalAndNeighborhoodRules) + "-" +
+			std::to_string(job.params.birthAndMaxCellStateRules);
+
+		std::string outputFolder = guiState.videoOutputFolderPath;
+		std::filesystem::create_directories(outputFolder);
+		return outputFolder + filename + ".h264";
+	}
+
 	void VideoEncodingMode::Enter(ModeServices& services)
 	{
 		auto extent = services.vulkanInstance.GetWindowExtent();
@@ -247,11 +258,19 @@ namespace Cave
 				_videoAccumulatedBitstream.clear();
 				_currentFrameIndex = 0;
 				_sessionRunning = true;
+
+				// Open the bitstream sink for the first job before we encode any frames.
+				// Streaming mode writes NALs straight to this file; legacy mode buffers
+				// in RAM and the path is reused only to log the final write at job end.
+				_videoCurrentOutputPath = BuildVideoOutputPath(_videoBatchQueue[_videoCurrentJobIndex], gs);
+				_videoEncoderSystem->OpenBitstreamForJob(_videoCurrentOutputPath, gs.videoEncoderStreamFlush);
+
 				_state = State::Encoding;
 
-				LOG_INFO("Video encoding started: {}x{} @{}fps, {} ticks{}",
+				LOG_INFO("Video encoding started: {}x{} @{}fps, {} ticks{} (bitstream sink: {})",
 					gs.videoResolutionWidth, gs.videoResolutionHeight, gs.videoFps, _videoTotalTicks,
-					_dualGpuEnabled ? " (dual-GPU)" : "");
+					_dualGpuEnabled ? " (dual-GPU)" : "",
+					gs.videoEncoderStreamFlush ? "streaming" : "in-RAM");
 			}
 			break;
 		}
@@ -270,16 +289,31 @@ namespace Cave
 
 				_simulationContext.camera->Update(0.0f);
 
-				// Animate orbit radius: start close (spawn-sized) and pull back to full grid view.
-				// Quadratic ease-out — camera pulls back quickly enough early on to keep the expanding
-				// simulation in view, then eases into the final grid-filling frame.
-				// With --no-camera-zoom the camera is pinned at endRadius for the entire clip.
+				// Animate orbit radius: track the estimated alive-cell bounding radius so
+				// the camera follows the simulation's expansion regardless of grid:spawn
+				// ratio or clip duration. Cellular automata propagate at ~1 cell per tick
+				// (one face-neighbor step), so the alive region's half-extent at tick T is
+				// approximately spawnHalfExtent + T cells. We multiply by a headroom factor
+				// for framing and clamp between a minimum (spawn-fitting) and maximum
+				// (full-grid-fitting) radius. With --no-camera-zoom the camera holds the
+				// full-grid radius for the entire clip.
+				//
+				// Why not linear: a 600-tick video at 225³/spawn 25 has life reach the
+				// boundary by tick ~110 (18% of clip) — linear-by-time leaves the camera
+				// far too close while the sim has already filled the grid. Tracking the
+				// alive-radius estimate naturally front-loads the zoom for fast-filling
+				// configs and stays slow for huge-grid configs (e.g. 4201³) where life
+				// barely advances within the clip duration.
 				{
 					float meshScaleRatio = _simulationContext.simulation.GetShape()->GetMeshScaleRatio();
-					float gridExtent = _simulationContext.simulation.GetDimensions()->x * 2.0f * meshScaleRatio;
-					float spawnExtent = _simulationContext.simulation.GetCenterSpawnAreaDimensions()->x * 2.0f * meshScaleRatio;
-					float startRadius = spawnExtent * 3.0f;
-					float endRadius = gridExtent * 2.0f;
+					float worldUnitPerCell = 2.0f * meshScaleRatio;
+					uint32_t gridHalfCells = _simulationContext.simulation.GetDimensions()->x / 2u;
+					uint32_t spawnHalfCells = _simulationContext.simulation.GetCenterSpawnAreaDimensions()->x / 2u;
+
+					// startRadius and endRadius preserve the prior framing: camera fits the
+					// spawn cube with breathing room, then eventually the full grid.
+					float startRadius = static_cast<float>(spawnHalfCells) * worldUnitPerCell * 6.0f;
+					float endRadius = static_cast<float>(gridHalfCells) * worldUnitPerCell * 4.0f;
 
 					bool disableZoom = services.startupConfig && services.startupConfig->disableCameraZoom;
 					float currentRadius;
@@ -289,12 +323,19 @@ namespace Cave
 					}
 					else
 					{
-						// Linear pull-back. Original quadratic ease-out front-loaded the retreat
-						// (75% retreated by midpoint), then a pow(p, 1.5) ease-in over-corrected
-						// (whole sim only visible at 1:13 of a 2:00 clip). Linear strikes the
-						// middle: whole sim becomes visible around the halfway mark.
+						// Two retreat curves; camera takes the LARGER (further-out) at every tick:
+						//   - linearByTime: progress-based pull-back from start to end. Dominates for
+						//     huge grids (e.g. 4201³) where life doesn't reach the boundary within
+						//     the clip — gives smooth progression to full-grid view at clip end.
+						//   - trackedByLife: spawn half-extent + ticks (1 cell/tick propagation) ×
+						//     framing factor. Dominates for small grids where life fills fast —
+						//     camera retreats aggressively early to keep alive cells in frame, then
+						//     parks at endRadius once life reaches the boundary.
 						float progress = static_cast<float>(_videoCurrentTick) / static_cast<float>(_videoTotalTicks);
-						currentRadius = startRadius + (endRadius - startRadius) * progress;
+						float linearByTime = startRadius + (endRadius - startRadius) * progress;
+						float aliveHalfCells = static_cast<float>(spawnHalfCells) + static_cast<float>(_videoCurrentTick);
+						float trackedByLife = aliveHalfCells * worldUnitPerCell * 3.0f;
+						currentRadius = std::min(endRadius, std::max(startRadius, std::max(linearByTime, trackedByLife)));
 					}
 					_simulationContext.camera->SetOrbitRadius(currentRadius);
 				}
@@ -399,21 +440,25 @@ namespace Cave
 				_videoEncoderSystem->Finish(_videoAccumulatedBitstream);
 
 				const GuiState& outState = services.guiSystem.GetState();
-				const auto& job = _videoBatchQueue[_videoCurrentJobIndex];
 
-				std::string filename = std::to_string(job.params.shapeAndGridConfiguration) + "-" +
-					std::to_string(job.params.survivalAndNeighborhoodRules) + "-" +
-					std::to_string(job.params.birthAndMaxCellStateRules);
-
-				std::string outputFolder = outState.videoOutputFolderPath;
-				std::filesystem::create_directories(outputFolder);
-
-				std::string outputPath = outputFolder + filename + ".h264";
-
-				std::ofstream outputFile(outputPath, std::ios::binary);
-				outputFile.write(_videoAccumulatedBitstream.data(), _videoAccumulatedBitstream.size());
-				outputFile.close();
-				LOG_INFO("Raw H.264 written to {} ({} bytes)", outputPath, _videoAccumulatedBitstream.size());
+				// The output path was resolved at job start (OpenBitstreamForJob).
+				// In streaming mode the file already exists on disk; in legacy mode we
+				// open it now and dump the accumulated buffer.
+				const std::string& outputPath = _videoCurrentOutputPath;
+				size_t bitstreamSize = 0;
+				if (_videoEncoderSystem->DidStreamBitstreamToDisk())
+				{
+					bitstreamSize = _videoEncoderSystem->GetStreamedByteCount();
+					LOG_INFO("Raw H.264 streamed to {} ({} bytes)", outputPath, bitstreamSize);
+				}
+				else
+				{
+					std::ofstream outputFile(outputPath, std::ios::binary);
+					outputFile.write(_videoAccumulatedBitstream.data(), _videoAccumulatedBitstream.size());
+					outputFile.close();
+					bitstreamSize = _videoAccumulatedBitstream.size();
+					LOG_INFO("Raw H.264 written to {} ({} bytes)", outputPath, bitstreamSize);
+				}
 
 				if (outState.videoKeepH264Only)
 				{
@@ -421,7 +466,7 @@ namespace Cave
 				}
 				else
 				{
-					std::string mp4Path = outputFolder + filename + ".mp4";
+					std::string mp4Path = outputPath.substr(0, outputPath.size() - 5) + ".mp4";
 					std::string ffmpegCommand = "ffmpeg -y -framerate " + std::to_string(outState.videoFps) +
 						" -i \"" + outputPath + "\" -c copy \"" + mp4Path + "\" 2>&1";
 					LOG_INFO("Remuxing to MP4: {}", ffmpegCommand);
@@ -460,6 +505,11 @@ namespace Cave
 					_simulationContext.simulationRenderer->Reset();
 					_simulationContext.computeSystem->RebuildPipeline();
 					_videoEncoderSystem->ResetForNewJob();
+
+					// Open the bitstream sink for this next job. ResetForNewJob deliberately
+					// leaves the sink state alone so this call owns the lifecycle end-to-end.
+					_videoCurrentOutputPath = BuildVideoOutputPath(nextJob, ngs);
+					_videoEncoderSystem->OpenBitstreamForJob(_videoCurrentOutputPath, ngs.videoEncoderStreamFlush);
 
 					_videoCurrentTick = 0;
 					_videoAccumulatedBitstream.clear();

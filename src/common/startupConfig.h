@@ -14,7 +14,7 @@ namespace Cave
 
 		// Shared params
 		int gridSize = 49;
-		int spawnSize = 25;
+		int spawnSize = 11;
 		int spawnMode = 1; // 0 = random, 1 = filled
 		float spawnRandomDensity = 0.5f; // [0,1] fraction of random spawn cells that fill
 		int maxCellState = 5;
@@ -24,7 +24,7 @@ namespace Cave
 		// Search params
 		int minMaxCellState = 3;
 		int maxMaxCellState = 10;
-		int maxTicks = 100;
+		int maxTicks = 50;
 		std::string searchOutputFolder = "data/search/";
 
 		// Sweep axes (search mode). When enabled, each axis multiplies the total chunk count.
@@ -78,6 +78,10 @@ namespace Cave
 		int videoDurationTicks = 300;
 		std::string videoOutputFolder = "data/videos/";
 		bool keepH264Only = false;  // skip ffmpeg remux; keep raw .h264 (~50ms saved per video)
+		// Stream each NAL unit to disk as encoded instead of buffering the whole bitstream in
+		// RAM and writing once at end-of-job. Bounded RAM + partial output salvageable after a
+		// crash. Default on; flip off via --encoder-stream-flush=false for A/B benchmarking.
+		bool encoderStreamFlush = true;
 
 		// Camera params
 		float orbitSpeed = -1.0f;      // -1 = use default

@@ -80,9 +80,15 @@ bool isAliveNeighbor(int3 c, uint maxCellState, uint3 dims)
     if (c.x < 0 || c.x >= int(dims.x) || c.y < 0 || c.y >= int(dims.y) || c.z < 0 || c.z >= int(dims.z))
         return false;
     if (!CubeFaceEdgeCorner::IsCellViable(uint3(c), dims)) return false;
-    uint linearIndex = uint(c.x) + uint(c.y) * dims.x + uint(c.z) * dims.x * dims.y;
-    uint uintIndex = linearIndex / CELLS_PER_UINT;
-    uint nibble    = linearIndex % CELLS_PER_UINT;
+    // 3D-tiled indexing matching computeMain's `uintIdx`. Each row has UINTS_PER_ROW
+    // uints with end-of-row padding when gridX isn't a multiple of 8. A linear
+    // (cellIndex / 8) layout — used to live here — disagrees with the per-row padded
+    // layout for non-8-aligned grids and read neighbor cells from the wrong addresses,
+    // causing rules to die spuriously fast at e.g. grid=49.
+    uint uintIndex = uint(c.x) / CELLS_PER_UINT
+                   + uint(c.y) * UINTS_PER_ROW
+                   + uint(c.z) * UINTS_PER_SLICE;
+    uint nibble    = uint(c.x) % CELLS_PER_UINT;
     uint state     = (cellsIn[uintIndex] >> (nibble * 4u)) & CELL_STATE_MASK;
     return state == maxCellState;
 }
